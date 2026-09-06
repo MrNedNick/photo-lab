@@ -91,13 +91,11 @@ test('invalid photo reports an error and a valid photo recovers', async ({
   page,
 }) => {
   await page.goto('./')
-  await page
-    .locator('#file')
-    .setInputFiles({
-      name: 'broken.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from('invalid image'),
-    })
+  await page.locator('#file').setInputFiles({
+    name: 'broken.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('invalid image'),
+  })
   await expect(page.locator('#notice')).toContainText('Unable to open photo')
   await expect(
     page.getByRole('button', { name: 'Try again', exact: true }),

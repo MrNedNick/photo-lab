@@ -22,13 +22,11 @@ test('12 MP photo remains editable during export and supports cancellation', asy
     }
     return canvas.toDataURL('image/jpeg', 0.95).split(',')[1]!
   })
-  await page
-    .locator('#file')
-    .setInputFiles({
-      name: '12mp-gradient.jpg',
-      mimeType: 'image/jpeg',
-      buffer: Buffer.from(base64, 'base64'),
-    })
+  await page.locator('#file').setInputFiles({
+    name: '12mp-gradient.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from(base64, 'base64'),
+  })
   await expect(page.locator('#export')).toBeEnabled({ timeout: 20000 })
   await expect(page.locator('#dimensions')).toHaveText('4,000 × 3,000 px')
   const intervals = await page.evaluate(async () => {
