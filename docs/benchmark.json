@@ -1,0 +1,10 @@
+{
+  "photo-open": 106.80000001192093,
+  "photo-export": 505.5,
+  "framesPerSecond": 60.00100842030959,
+  "p95FrameMs": 16.700000000000273,
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "rendering": "Chromium default GPU backend",
+  "image": "4000x3000 generated JPEG",
+  "viewport": "1440x1000"
+}
