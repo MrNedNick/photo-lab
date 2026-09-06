@@ -76,8 +76,10 @@ function render() {
     const shown = comparing || cropActive ? freshEdit() : edit
     renderer.render(shown)
     syncControls()
-    window.clearTimeout(histTimer)
-    histTimer = window.setTimeout(() => worker?.postMessage({ kind: 'histogram', id: ++histogramId, edit: shown }), 100)
+    if (!histTimer) histTimer = window.setTimeout(() => {
+      histTimer = 0
+      worker?.postMessage({ kind: 'histogram', id: ++histogramId, edit: comparing || cropActive ? freshEdit() : edit })
+    }, 100)
   })
 }
 function persist() {
@@ -127,6 +129,7 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
         $('#empty').hidden = true; $('#canvas-wrap').hidden = false; $('#notice').hidden = true
         setBusy(false); render(); syncControls()
         if (!saved) persist()
+        else $('#save-status').textContent = 'Saved on this device'
         performance.measure('photo-open', { start: started, end: performance.now() })
       } catch (error) { setBusy(false); announce(String(error), () => void openPhoto(file, filename, saved)) }
     } else if (data.kind === 'histogram' && data.id === histogramId) drawHistogram(data.bins)

@@ -31,6 +31,7 @@ export class Renderer {
   gl: WebGL2RenderingContext
   program: WebGLProgram
   texture: WebGLTexture
+  buffer: WebGLBuffer
   width = 1; height = 1
   private canvas: HTMLCanvasElement | OffscreenCanvas
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
@@ -50,12 +51,12 @@ export class Renderer {
     gl.deleteShader(vs); gl.deleteShader(fs)
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error('Could not initialize the photo renderer.')
     gl.useProgram(this.program)
-    const buffer = gl.createBuffer()
+    const buffer = gl.createBuffer()!
+    this.buffer = buffer
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW)
     const location = gl.getAttribLocation(this.program, 'position')
     gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0)
-    gl.deleteBuffer(buffer)
     this.texture = gl.createTexture()!
     gl.bindTexture(gl.TEXTURE_2D, this.texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
@@ -90,5 +91,5 @@ export class Renderer {
     this.gl.readPixels(0, 0, this.canvas.width, this.canvas.height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels)
     return pixels
   }
-  dispose() { this.gl.deleteTexture(this.texture); this.gl.deleteProgram(this.program); this.gl.getExtension('WEBGL_lose_context')?.loseContext() }
+  dispose() { this.gl.deleteBuffer(this.buffer); this.gl.deleteTexture(this.texture); this.gl.deleteProgram(this.program); this.gl.getExtension('WEBGL_lose_context')?.loseContext() }
 }
