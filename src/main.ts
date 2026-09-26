@@ -173,6 +173,7 @@ $('#app').innerHTML = `
   <label for="export-size">Size</label><select id="export-size"><option value="full">Full resolution</option><option value="2048">2048 px long edge</option><option value="1080">1080 px long edge · social</option><option value="0.5">50%</option><option value="0.25">25%</option><option value="custom">Custom width…</option></select>
   <div id="custom-size" hidden><label for="custom-width">Width in pixels</label><input id="custom-width" type="number" min="16" step="1" inputmode="numeric"></div>
   <p id="export-dimensions" class="hint"></p>
+  <p id="export-estimate" class="hint" aria-live="polite"></p>
   <p id="export-status" role="status"></p>
   <div class="dialog-actions">
     <button id="download" type="button" class="button primary">${icon('download')}<span>Download</span></button>
@@ -1071,6 +1072,29 @@ function exportDimensions() {
   $('#export-dimensions').textContent =
     `${size.width} × ${size.height} px · every edit included${note}`
   $<HTMLInputElement>('#quality').disabled = format === 'image/png'
+  estimateSize(size, format)
+}
+let estimateTimer = 0
+/** Encode the on-screen preview and scale by pixel count — rough, hence
+ * "about", but enough to choose between formats before waiting for export. */
+function estimateSize(size: { width: number; height: number }, format: string) {
+  clearTimeout(estimateTimer)
+  $('#export-estimate').textContent = ''
+  estimateTimer = window.setTimeout(() => {
+    paint() // a hidden tab may not have drawn a frame yet
+    canvas.toBlob?.(
+      (blob) => {
+        if (!blob || blob.type !== format) return
+        const scale =
+            (size.width * size.height) / (canvas.width * canvas.height),
+          mb = (blob.size * scale) / 1024 / 1024
+        $('#export-estimate').textContent =
+          `File size about ${mb < 0.1 ? 'under 0.1' : mb.toFixed(1)} MB`
+      },
+      format,
+      +$<HTMLInputElement>('#quality').value / 100,
+    )
+  }, 250)
 }
 $('#export').onclick = () => {
   if (
@@ -1099,6 +1123,7 @@ $('#custom-width').oninput = exportDimensions
 $('#format').onchange = exportDimensions
 $('#quality').oninput = () => {
   $('#quality-value').textContent = `${$<HTMLInputElement>('#quality').value}%`
+  exportDimensions()
 }
 function exportBusy(busy: boolean) {
   $('#cancel-export').hidden = !busy
