@@ -1,78 +1,83 @@
 # Photo Lab
 
-A private photo studio in your browser. Open a photo, find the right crop and color, then export a new file. No account, no upload, no backend.
+A free photo editor that runs entirely in your browser. Crop for Instagram or Stories, straighten the horizon, fix the colors, remove the background, blur a face or a number plate — and export. No sign-up, no upload, no watermark.
 
 **[Open Photo Lab](https://mrnednick.github.io/photo-lab/)**
 
-![Photo Lab showing an editable landscape, adjustment controls and RGB histogram](docs/editor.png)
+![Photo Lab: a full-screen editor with tools on the left, the photo in the middle and adjustments on the right](docs/editor.png)
 
 ## What you can do
 
-- Open JPEG, PNG, WebP or AVIF files with the file picker or drag and drop. Try the built-in landscape without bringing a photo.
-- Crop with five aspect-ratio presets, resize and move the crop frame, rotate in 90° steps, and flip either axis.
-- Adjust exposure, contrast, saturation, warmth and vignette, or start with Natural, Golden, Mono and Soft looks.
-- Compare with the original. Undo and redo up to 100 edit states with buttons or `Ctrl/⌘ Z` and `Ctrl/⌘ Shift Z`.
-- Export JPEG with adjustable quality, or lossless PNG with transparency, at full resolution or a smaller size. Cancel an export while it is running.
-- Resume the latest photo and edit history after a reload. Tabs share the same workspace; the last completed save wins.
-- Use light or dark mode, a 360 px phone layout, or a full keyboard workflow. The crop frame moves with arrow keys; Shift makes larger steps.
+- **Open** a JPEG, PNG, WebP or AVIF photo — pick it, drop it on the page or paste it with `Ctrl/⌘ V`. The editor fills the window from the first second; there is a sample photo if you just want to look around.
+- **Crop** with presets named for where the photo goes — Instagram post (1:1) and portrait (4:5), Stories (9:16), YouTube (16:9), print (3:2), A4 — or freely. Drag the frame or its corners; a rule-of-thirds grid helps.
+- **Straighten** a tilted horizon by up to 45°. The frame zooms just enough that no empty corner ever shows. Rotate in quarter turns and flip either way.
+- **Adjust** exposure, contrast, saturation, warmth and vignette, or start from one of seven looks, each previewed on your own photo.
+- **Remove the background** with one click. Choose what goes behind the subject: transparency, a solid color, or a soft blur like a phone's portrait mode.
+- **Hide** faces, number plates or addresses with blur or pixelation before you share.
+- **Compare** with the original by dragging a before/after divider, or hold `Space` for a quick look.
+- **Export** JPEG, PNG or WebP (AVIF where the browser can encode it) at full size, a social-friendly 1080 px, a percentage, or an exact width. Copy the result to the clipboard or share it from your phone.
+- **Pick up where you left off.** The photo and up to 100 steps of undo survive a reload and stay in step across open tabs.
 
-Your original file is never overwritten. Crop coordinates refer to the original, before rotation. Only the latest workspace is saved; opening another photo replaces it.
+Light and dark themes, a 360 px phone layout and full keyboard use are all supported.
 
-## Why this stack
+## Everything stays on your device
 
-TypeScript and Vite keep the interface small without a UI framework. The project has no runtime package dependencies. The browser already provides the specialist tools this editor needs:
+The photo never leaves the browser. Background removal is a small neural network ([U²-Net-p](https://github.com/xuebinqin/U-2-Net), Apache-2.0) run by [ONNX Runtime Web](https://onnxruntime.ai/) in a worker. It is served from this site and downloaded only when you first ask for a cut-out: the 4.6 MB model plus a 3.7 MB (gzip) runtime, cached after that. On a laptop, the first cut-out takes about 2 seconds, download included.
 
-| Work                                         | Where it runs                                                         |
-| -------------------------------------------- | --------------------------------------------------------------------- |
-| Controls, history and save coordination      | Main thread                                                           |
-| Preview filters and geometric transforms     | WebGL2, one fragment-shader pass                                      |
-| Image decode and preview downsampling        | Web Worker with `createImageBitmap`                                   |
-| RGB histogram                                | Worker, rendered at 256 px and refreshed at most ten times per second |
-| Full-resolution render and PNG/JPEG encoding | Dedicated worker using WebGL2 and `OffscreenCanvas`                   |
-| Original blob and edit history               | IndexedDB on this browser                                             |
+The model is deliberately small, so it looks for the main subject in the frame: a person, an animal or a product on a calm background comes out cleanly, while a busy street can drag neighbouring objects into the cut-out.
 
-The preview texture is capped at 2048 px. Rendering follows the visible canvas size, capped at a 1600 px longest edge, instead of processing all twelve million pixels on each slider movement. Export decodes the original and uses the same shader at the requested resolution. Cancelling terminates the dedicated export worker, including pending decode and encoding work.
+## How it is built
 
-`src/model.ts` contains geometry and history, `src/renderer.ts` owns GPU resources, `src/photo.worker.ts` handles background jobs, `src/storage.ts` isolates IndexedDB, and `src/main.ts` connects the accessible controls to them.
+TypeScript and Vite, no UI framework. The browser already has the specialist parts an editor needs:
+
+| Work                                                   | Where it runs                                                   |
+| ------------------------------------------------------ | --------------------------------------------------------------- |
+| Controls, history and save coordination                | Main thread                                                     |
+| Colors, geometry, horizon, background and hidden areas | WebGL2, one fragment-shader pass                                |
+| Image decode, look previews and RGB histogram          | One long-lived worker with its own WebGL2 context               |
+| Background cut-out                                     | Worker running ONNX Runtime Web (WebAssembly), loaded on demand |
+| Full-resolution render and PNG/JPEG/WebP encoding      | Dedicated export worker with `OffscreenCanvas`, cancellable     |
+| Original photo, cut-out mask and edit history          | IndexedDB in this browser                                       |
+
+Every edit is a small serializable record, and the preview and the export are the same shader at different sizes, so what you see is what you get. Tools that draw on the preview — hidden areas — are stored in original-photo coordinates by running the shader's mapping backwards (`sourcePoint` in `src/model.ts`), so they stay on the right pixels after a later crop or rotation. Workspaces saved by the first version of the editor open unchanged.
+
+`src/model.ts` holds geometry and history, `src/renderer.ts` the GPU pass, `src/photo.worker.ts` and `src/segment.worker.ts` the background work, `src/storage.ts` IndexedDB, and `src/main.ts` the interface.
 
 ## Measured performance
 
-A production-build run with a generated 4000 × 3000 JPEG, Chromium 153 on macOS, default GPU backend, 1440 × 1000 viewport:
+A production build with a generated 4000 × 3000 JPEG, Chromium 153 on macOS, default GPU backend, 1440 × 1000 viewport:
 
 | Measurement                                                |   Result |
 | ---------------------------------------------------------- | -------: |
-| Decode, preview preparation and texture upload             |   107 ms |
+| Decode, preview preparation and texture upload             |   105 ms |
 | Animation-frame cadence during continuous exposure changes | 60.0 fps |
 | 95th-percentile frame interval                             |  16.7 ms |
-| Full-resolution JPEG export                                |   506 ms |
+| Full-resolution JPEG export                                |   504 ms |
+| First background cut-out, model download included          |   ~1.7 s |
 
-These are one machine's measurements, not a guarantee for every photo or GPU. Opening time ends at texture upload, before the first screen paint. Frame cadence is measured with `requestAnimationFrame`, rather than a hardware presentation counter. A separate software-rendering run before the viewport-size optimization achieved approximately 19 fps; acceleration and preview size matter.
-
-[Raw benchmark](docs/benchmark.json) and the repeatable workload live in `tests/performance.spec.ts`. The tests also check that the event loop continues during export and that cancellation works.
-
-Lighthouse against the local production build scored **100 performance / 100 accessibility / 100 best practices / 100 SEO** on the initial workspace. These scores describe that run and state, not a loaded-image benchmark.
+One machine's numbers, not a promise for every photo or GPU. The preview texture is capped at 2048 px and rendering follows the visible canvas size, so moving a slider never processes all twelve million pixels. [Raw benchmark](docs/benchmark.json); the repeatable workload lives in `tests/performance.spec.ts`.
 
 ## Run locally
 
-Use Node 22.12+; CI uses Node 24.
+Node 22.12+; CI uses Node 24.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite, including `/photo-lab/`.
+Open the URL Vite prints, including `/photo-lab/`.
 
 ```sh
-npm run lint          # TypeScript and unused-code checks
-npm test              # 12 unit and accessible-UI tests
+npm run lint          # TypeScript
+npm test              # 17 unit and interface tests
 npm run build
 npx playwright install chromium
-npm run test:e2e       # Editing, export pixels, persistence, layouts, 12 MP workload
+npm run test:e2e      # editing, background removal, export pixels, persistence, layouts, 12 MP workload
 npm run format:check
 ```
 
-For the recorded production benchmark, start `npm run preview` and run:
+Browser tests use SwiftShader unless `HARDWARE_GRAPHICS` is set, so they run the same in headless CI. They check exported pixels and dimensions, a transparent PNG after background removal, cross-tab updates, broken-file recovery, no requests to other hosts, and both themes at 360, 768 and 1440 px. To record the benchmark, run `npm run preview` and:
 
 ```sh
 HARDWARE_GRAPHICS=1 RECORD_METRICS=1 \
@@ -80,22 +85,12 @@ HARDWARE_GRAPHICS=1 RECORD_METRICS=1 \
   npx playwright test tests/performance.spec.ts
 ```
 
-Without `HARDWARE_GRAPHICS`, browser tests use SwiftShader for consistent headless CI. `RECORD_METRICS` also updates the screenshot. Tests cover broken-image recovery, undo/redo branching, crop/rotation sizes, cross-tab updates, PNG dimensions and pixel variation, zero external requests during editing, and both themes at 360, 768 and 1440 px. A deliberate crop-geometry mutation was detected by five unit tests.
-
 ## Deploy
 
-GitHub Pages is configured to use GitHub Actions. A push to `main` installs dependencies, runs checks, builds `dist/` and deploys it. The separate Checks workflow also runs the browser tests. To redeploy the current version:
+GitHub Pages via GitHub Actions: a push to `main` runs the checks, builds `dist/` and deploys it. To redeploy by hand, `gh workflow run pages.yml`. Elsewhere, serve `dist/` and set `base` in `vite.config.ts` to the host's path.
 
-```sh
-gh workflow run pages.yml
-```
+## Limits
 
-To host elsewhere, build with `npm run build` and serve `dist/`. Set Vite's `base` in `vite.config.ts` to the host's path (use `/` for a domain root).
+A current browser with WebGL2, OffscreenCanvas and worker image decoding is required. Inputs are limited to 50 MB and 50 megapixels; full-resolution export is also bounded by the GPU's texture size and memory. RAW and HEIC are not supported, and this is an SDR editor, not a color-managed RAW developer. JPEG has no transparency — the editor switches to PNG when the background is transparent. Exported files do not keep the original metadata.
 
-## Privacy and limits
-
-Photo bytes are never sent to a server. There are no analytics, remote fonts or external image requests. A content security policy restricts connections to the app's own origin. Hosting still receives ordinary requests for HTML, JavaScript and CSS, but never the opened photo.
-
-IndexedDB is local browser storage, not encrypted storage or a backup. Use **Clear saved photo** to remove the saved workspace, especially on a shared device. A browser quota or private-mode restriction can prevent persistence; editing and export remain available with a visible warning.
-
-A current browser with WebGL2, OffscreenCanvas and worker image decoding is required. Inputs are limited to 50 MB and 50 megapixels; full-resolution export is also limited by the device's maximum GPU texture size and available memory. RAW and HEIC are not supported. This is an SDR editor using browser color handling, not a color-managed RAW development tool. PNG preserves transparency; JPEG cannot. Exported files do not retain the original metadata.
+IndexedDB is local storage, not a backup and not encrypted. **Clear saved photo** removes the workspace, which matters on a shared device.
