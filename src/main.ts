@@ -93,7 +93,7 @@ $('#app').innerHTML = `
     <button id="redo" class="icon-button" aria-label="Redo last edit" title="Redo (Ctrl/⌘ Shift Z)" disabled>${icon('redo')}</button>
     <button id="compare" class="icon-button" aria-pressed="false" aria-label="Compare with original" title="Compare with original (hold Space for a quick look)" disabled>${icon('compare')}</button>
     <button id="theme" class="icon-button" aria-label="Switch to light theme">${icon('sun')}</button>
-    <button id="open" class="button">${icon('open')}<span>Open</span></button>
+    <button id="open" class="button" aria-label="Open photo" title="Open photo">${icon('open')}<span>Open</span></button>
     <button id="export" class="button primary" disabled>${icon('download')}<span>Export</span></button>
   </div>
 </header>
