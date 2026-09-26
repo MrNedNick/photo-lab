@@ -50,7 +50,7 @@ test('open, crop, adjust, undo, persist, export and stay private', async ({
   await second.close()
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await page.getByLabel('Format').selectOption('image/png')
-  await page.getByLabel('Size').selectOption('custom')
+  await page.getByLabel('Size', { exact: true }).selectOption('custom')
   await page.getByLabel('Width in pixels').fill('640')
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download', exact: true }).click()
@@ -148,12 +148,25 @@ test('remove the background, hide an area, and export a transparent PNG', async 
   await expect(
     page.getByRole('button', { name: 'Transparent', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
+  // The sun is the subject of the sample; erase it with the brush.
+  await page.getByRole('button', { name: 'Paint on the photo' }).click()
+  const art = (await page.locator('#brush-overlay').boundingBox())!
+  await page.mouse.move(art.x + art.width * 0.66, art.y + art.height * 0.27)
+  await page.mouse.down()
+  await page.mouse.move(art.x + art.width * 0.79, art.y + art.height * 0.27, {
+    steps: 6,
+  })
+  await page.mouse.up()
+  await expect(
+    page.getByRole('button', { name: 'Remove all brush strokes' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Done refining' }).click()
   await page.getByRole('tab', { name: 'Blur area' }).click()
   await page.getByRole('button', { name: 'Draw an area' }).click()
   const box = (await page.locator('#draw-overlay').boundingBox())!
-  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.1)
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.6)
   await page.mouse.down()
-  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.4, {
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.9, {
     steps: 5,
   })
   await page.mouse.up()
@@ -164,7 +177,7 @@ test('remove the background, hide an area, and export a transparent PNG', async 
   await expect(page.getByText('Area 1 · Blur')).toBeAttached()
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByLabel('Format')).toHaveValue('image/png')
-  await page.getByLabel('Size').selectOption('0.25')
+  await page.getByLabel('Size', { exact: true }).selectOption('0.25')
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download', exact: true }).click()
   const download = await downloadEvent
@@ -187,12 +200,19 @@ test('remove the background, hide an area, and export a transparent PNG', async 
       if (values[i] === 0) clear++
       if (values[i] === 255) solid++
     }
+    const sun =
+      (Math.round(bitmap.height * 0.27) * bitmap.width +
+        Math.round(bitmap.width * 0.725)) *
+        4 +
+      3
     return {
       clear: clear / (values.length / 4),
       solid: solid / (values.length / 4),
+      sun: values[sun],
     }
   }, Buffer.concat(chunks).toString('base64'))
   expect(alpha.clear).toBeGreaterThan(0.1)
   expect(alpha.solid).toBeGreaterThan(0.01)
+  expect(alpha.sun).toBe(0)
   expect(errors).toEqual([])
 })

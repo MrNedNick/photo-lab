@@ -5,6 +5,7 @@ import {
   freshEdit,
   History,
   MAX_REDACTIONS,
+  sourcePoint,
   sourceRect,
   type BackgroundMode,
   type Crop,
@@ -13,6 +14,7 @@ import {
 import { readProject, saveProject, type Project } from './storage'
 import { Renderer } from './renderer'
 import { icon } from './icons'
+import { MaskLayer } from './mask'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!
@@ -114,6 +116,7 @@ $('#app').innerHTML = `
       <canvas id="canvas" aria-label="Edited photo preview"></canvas>
       <div id="crop-overlay" class="crop-overlay" hidden><div id="crop-box" tabindex="0" role="group" aria-label="Crop frame. Arrow keys move it, Shift makes larger steps."><span data-corner="nw"></span><span data-corner="ne"></span><span data-corner="sw"></span><span data-corner="se"></span></div></div>
       <div id="draw-overlay" class="draw-overlay" hidden><div id="draw-rect" hidden></div></div>
+      <div id="brush-overlay" class="brush-overlay" hidden><div id="brush-cursor"></div></div>
       <div id="split" class="split" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" hidden><span>Before</span><span>After</span></div>
     </div>
     <div id="loading" class="loading" hidden><span class="spinner"></span><p id="loading-text">Opening your photo…</p></div>
@@ -150,6 +153,12 @@ $('#app').innerHTML = `
       <h3>Behind the subject</h3>
       <div class="chips">${(['keep', 'transparent', 'color', 'blur'] as const).map((m) => `<button class="chip" data-bg="${m}" aria-pressed="false">${{ keep: 'Original', transparent: 'Transparent', color: 'Color', blur: 'Blur' }[m]}</button>`).join('')}</div>
       <div id="bg-colors" class="swatches" hidden>${swatches.map((c) => `<button class="swatch" data-color="${c}" style="--swatch:${c}" aria-label="Background ${c}"></button>`).join('')}<label class="swatch custom" aria-label="Pick any color"><input id="bg-color" type="color" value="#ffffff"></label></div>
+      <h3>Refine the edge</h3>
+      <p class="hint">Keep paints back what the cut-out missed. Erase removes what it grabbed by mistake.</p>
+      <div class="chips"><button class="chip" data-brush="keep" aria-pressed="false">Keep</button><button class="chip" data-brush="erase" aria-pressed="true">Erase</button></div>
+      <div class="adjustment"><label for="brush-size">Brush size</label><output id="brush-size-value" for="brush-size">4%</output><input id="brush-size" type="range" min="1" max="15" step="0.5" value="4"></div>
+      <button id="refine" class="button wide" aria-pressed="false">Paint on the photo</button>
+      <button id="reset-refine" class="text-button" hidden>Remove all brush strokes</button>
     </div>
   </section>
   <section id="panel-retouch" role="tabpanel" aria-labelledby="tab-retouch" data-panel="retouch" hidden>
@@ -209,6 +218,9 @@ let cropActive = false,
 let comparing = false,
   holdOriginal = false,
   splitAt = 0.5
+const maskLayer = new MaskLayer()
+let refining = false,
+  brushKeep = false
 let drawing = false,
   redactMode: 'blur' | 'pixelate' = 'blur'
 let retry: (() => void) | undefined
@@ -258,6 +270,7 @@ $('#theme').onclick = () =>
 function selectTool(next: Tool, focus = false) {
   if (tool === 'crop' && next !== 'crop' && cropActive) endCrop()
   if (next !== 'retouch') setDrawing(false)
+  if (next !== 'background') setRefining(false)
   tool = next
   for (const tab of $$('[data-tool]')) {
     const on = tab.dataset.tool === next
@@ -316,6 +329,7 @@ function syncControls() {
       String(chip.dataset.bg === edit.background),
     )
   $('#bg-colors').hidden = edit.background !== 'color'
+  $('#reset-refine').hidden = !edit.maskStrokes.length
   $<HTMLInputElement>('#bg-color').value = edit.backgroundColor
   renderAreas()
 }
@@ -358,6 +372,7 @@ function paint() {
   if (!renderer || !photo) return
   const shown = cropActive ? cropView() : edit
   const split = cropActive ? -1 : holdOriginal ? 2 : comparing ? splitAt : -1
+  maskLayer.apply(renderer, shown.maskStrokes)
   renderer.render(shown, previewEdge(), split)
   fitCanvas()
   syncControls()
@@ -492,11 +507,9 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
         renderer ||= new Renderer(canvas)
         renderer.load(data.bitmap)
         data.bitmap.close()
-        const savedMask = saved?.mask
-          ? await createImageBitmap(saved.mask)
-          : null
-        renderer.loadMask(savedMask)
-        savedMask?.close()
+        maskLayer.setBase(
+          saved?.mask ? await createImageBitmap(saved.mask) : null,
+        )
         worker!.postMessage({ kind: 'mask', id, mask: saved?.mask ?? null })
         photo = file
         mask = saved?.mask
@@ -832,9 +845,7 @@ function removeBackground() {
     } else if (data.kind === 'error') fail(data.message)
     else if (data.kind === 'mask') {
       try {
-        const bitmap = await createImageBitmap(data.blob)
-        renderer!.loadMask(bitmap)
-        bitmap.close()
+        maskLayer.setBase(await createImageBitmap(data.blob))
         mask = data.blob
         worker?.postMessage({ kind: 'mask', id, mask })
         setBusy(false)
@@ -873,6 +884,91 @@ $<HTMLInputElement>('#bg-color').oninput = (e) => {
   render()
 }
 $<HTMLInputElement>('#bg-color').onchange = commit
+
+/* ---------- refine the cut-out ---------- */
+function setRefining(on: boolean) {
+  refining = on && !!photo && !!mask
+  if (refining) {
+    comparing = false
+    endCrop()
+    setDrawing(false)
+    // Strokes only show against a changed background.
+    if (edit.background === 'keep') edit.background = 'transparent'
+  }
+  $('#brush-overlay').hidden = !refining
+  $('#refine').setAttribute('aria-pressed', String(refining))
+  $('#refine').textContent = refining ? 'Done refining' : 'Paint on the photo'
+  render()
+}
+/** Brush size is a share of the edited photo's longest side, the way it
+ * looks on screen; strokes store it relative to the original. */
+function brushRadius() {
+  const out = dimensions(width, height, edit)
+  return (
+    ((+$<HTMLInputElement>('#brush-size').value / 100) *
+      Math.max(out.width, out.height)) /
+    Math.max(width, height) /
+    2
+  )
+}
+$('#refine').onclick = () => setRefining(!refining)
+for (const chip of $$<HTMLButtonElement>('[data-brush]'))
+  chip.onclick = () => {
+    brushKeep = chip.dataset.brush === 'keep'
+    for (const c of $$('[data-brush]'))
+      c.setAttribute('aria-pressed', String(c === chip))
+  }
+$<HTMLInputElement>('#brush-size').oninput = () => {
+  $('#brush-size-value').textContent =
+    `${$<HTMLInputElement>('#brush-size').value}%`
+}
+$('#reset-refine').onclick = () => {
+  edit.maskStrokes = []
+  commit()
+}
+let painting = false
+function brushAt(e: PointerEvent) {
+  const r = $('#brush-overlay').getBoundingClientRect(),
+    u = (e.clientX - r.left) / r.width,
+    v = (e.clientY - r.top) / r.height,
+    size =
+      (+$<HTMLInputElement>('#brush-size').value / 100) *
+      Math.max(r.width, r.height)
+  const cursor = $('#brush-cursor')
+  cursor.style.width = cursor.style.height = `${size}px`
+  cursor.style.left = `${u * 100}%`
+  cursor.style.top = `${v * 100}%`
+  return sourcePoint(
+    Math.max(0, Math.min(1, u)),
+    Math.max(0, Math.min(1, v)),
+    edit,
+    outputAspect(),
+  )
+}
+$('#brush-overlay').onpointerdown = (e) => {
+  $('#brush-overlay').setPointerCapture(e.pointerId)
+  painting = true
+  const p = brushAt(e)
+  edit.maskStrokes.push({
+    points: [p.x, p.y],
+    radius: brushRadius(),
+    keep: brushKeep,
+  })
+  render()
+}
+$('#brush-overlay').onpointermove = (e) => {
+  const p = brushAt(e)
+  if (!painting) return
+  edit.maskStrokes.at(-1)!.points.push(p.x, p.y)
+  render()
+}
+const endStroke = () => {
+  if (!painting) return
+  painting = false
+  commit()
+}
+$('#brush-overlay').onpointerup = endStroke
+$('#brush-overlay').onpointercancel = endStroke
 
 /* ---------- blur an area ---------- */
 function setDrawing(on: boolean) {
@@ -978,6 +1074,7 @@ $('#compare').onclick = () => {
   if (comparing) {
     endCrop()
     setDrawing(false)
+    setRefining(false)
   }
   render()
 }
@@ -1283,6 +1380,8 @@ async function clearPhoto(broadcast = true) {
   loadId++
   photo = undefined
   mask = undefined
+  maskLayer.setBase(null)
+  setRefining(false)
   history = new History()
   edit = history.current
   endCrop()

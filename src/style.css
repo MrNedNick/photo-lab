@@ -935,3 +935,20 @@ dialog input[type='number'] {
 [hidden] {
   display: none !important;
 }
+.brush-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: none;
+  touch-action: none;
+  overflow: hidden;
+}
+#brush-cursor {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}

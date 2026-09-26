@@ -12,7 +12,7 @@ A free photo editor that runs entirely in your browser. Crop for Instagram or St
 - **Crop** with presets named for where the photo goes — Instagram post (1:1) and portrait (4:5), Stories (9:16), YouTube (16:9), print (3:2), A4 — or freely. Drag the frame or its corners; a rule-of-thirds grid helps.
 - **Straighten** a tilted horizon by up to 45°. The frame zooms just enough that no empty corner ever shows. Rotate in quarter turns and flip either way.
 - **Adjust** exposure, contrast, saturation, warmth and vignette, or start from one of seven looks, each previewed on your own photo.
-- **Remove the background** with one click. Choose what goes behind the subject: transparency, a solid color, or a soft blur like a phone's portrait mode.
+- **Remove the background** with one click. Choose what goes behind the subject: transparency, a solid color, or a soft blur like a phone's portrait mode. If the cut-out missed or grabbed something, paint over it with the Keep or Erase brush.
 - **Hide** faces, number plates or addresses with blur or pixelation before you share.
 - **Compare** with the original by dragging a before/after divider, or hold `Space` for a quick look.
 - **Export** JPEG, PNG or WebP (AVIF where the browser can encode it) at full size, a social-friendly 1080 px, a percentage, or an exact width. Copy the result to the clipboard or share it from your phone.

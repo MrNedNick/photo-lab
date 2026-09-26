@@ -1,5 +1,6 @@
 import { histogram, normalizeEdit, type Edit } from './model'
 import { Renderer } from './renderer'
+import { MaskLayer } from './mask'
 interface Request {
   id: number
   kind: 'load' | 'histogram' | 'export' | 'mask' | 'thumbs'
@@ -17,6 +18,7 @@ const worker = self as unknown as {
 }
 let renderer: Renderer | undefined
 let canvas: OffscreenCanvas | undefined
+const layer = new MaskLayer()
 worker.onmessage = async ({ data }) => {
   const { id, kind } = data
   try {
@@ -40,28 +42,27 @@ worker.onmessage = async ({ data }) => {
       canvas ||= new OffscreenCanvas(1, 1)
       renderer ||= new Renderer(canvas)
       renderer.load(preview)
-      renderer.loadMask(null)
+      layer.setBase(null)
       worker.postMessage({ id, kind, bitmap: preview, width, height }, [
         preview,
       ])
     } else if (kind === 'histogram') {
       if (!renderer) return
-      renderer.render(normalizeEdit(data.edit!), 256)
+      const edit = normalizeEdit(data.edit!)
+      layer.apply(renderer, edit.maskStrokes)
+      renderer.render(edit, 256)
       worker.postMessage({ id, kind, bins: histogram(renderer.pixels()) })
     } else if (kind === 'mask') {
       if (!renderer) return
-      const mask = data.mask ? await createImageBitmap(data.mask) : null
-      renderer.loadMask(mask)
-      mask?.close()
+      layer.setBase(data.mask ? await createImageBitmap(data.mask) : null)
     } else if (kind === 'thumbs') {
       if (!renderer || !canvas) return
       // Plain pixels rather than GPU bitmaps: the previews are tiny, and
       // sharing GPU images across threads stalls software renderers.
-      const images = data.edits!.map((edit) => {
-        const { width, height } = renderer!.render(
-          normalizeEdit(edit),
-          data.max,
-        )
+      const images = data.edits!.map((raw) => {
+        const edit = normalizeEdit(raw)
+        layer.apply(renderer!, edit.maskStrokes)
+        const { width, height } = renderer!.render(edit, data.max)
         const pixels = renderer!.pixels(),
           rows = new Uint8ClampedArray(pixels.length),
           stride = width * 4
@@ -87,20 +88,18 @@ worker.onmessage = async ({ data }) => {
       renderer = new Renderer(canvas)
       renderer.load(bitmap)
       bitmap.close()
+      const edit = normalizeEdit(data.edit || {})
       if (data.mask) {
-        const mask = await createImageBitmap(data.mask)
-        renderer.loadMask(mask)
-        mask.close()
+        const exportLayer = new MaskLayer()
+        exportLayer.setBase(await createImageBitmap(data.mask))
+        exportLayer.apply(renderer, edit.maskStrokes)
       }
       worker.postMessage({
         id,
         kind: 'progress',
         value: 'Rendering your edits…',
       })
-      const size = renderer.render(
-        normalizeEdit(data.edit || {}),
-        data.max || Infinity,
-      )
+      const size = renderer.render(edit, data.max || Infinity)
       worker.postMessage({
         id,
         kind: 'progress',

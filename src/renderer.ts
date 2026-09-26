@@ -186,7 +186,7 @@ export class Renderer {
       )
   }
   /** The cut-out mask, in original-photo coordinates; null removes it. */
-  loadMask(bitmap: ImageBitmap | null) {
+  loadMask(bitmap: ImageBitmap | OffscreenCanvas | null) {
     const gl = this.gl
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, this.maskTexture)

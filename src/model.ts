@@ -10,6 +10,13 @@ export type BackgroundMode = 'keep' | 'transparent' | 'color' | 'blur'
 export interface Redaction extends Crop {
   mode: 'blur' | 'pixelate'
 }
+/** A brush stroke on the cut-out: `points` are x, y pairs normalized to the
+ * original photo, `radius` a share of its longest side. */
+export interface MaskStroke {
+  points: number[]
+  radius: number
+  keep: boolean
+}
 export interface Edit {
   exposure: number
   contrast: number
@@ -25,6 +32,7 @@ export interface Edit {
   background: BackgroundMode
   backgroundColor: string
   redactions: Redaction[]
+  maskStrokes: MaskStroke[]
 }
 export const MAX_REDACTIONS = 8
 export const freshEdit = (): Edit => ({
@@ -41,6 +49,7 @@ export const freshEdit = (): Edit => ({
   background: 'keep',
   backgroundColor: '#ffffff',
   redactions: [],
+  maskStrokes: [],
 })
 /** Saved edits from before horizon, background and redaction support lack
  * those fields; fill them in so old workspaces open unchanged. */
@@ -51,6 +60,10 @@ export function normalizeEdit(edit: Partial<Edit>): Edit {
     ...edit,
     crop: { ...base.crop, ...edit.crop },
     redactions: (edit.redactions ?? []).map((r) => ({ ...r })),
+    maskStrokes: (edit.maskStrokes ?? []).map((s) => ({
+      ...s,
+      points: [...s.points],
+    })),
   }
 }
 export function dimensions(
