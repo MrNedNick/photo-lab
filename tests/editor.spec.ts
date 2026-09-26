@@ -21,8 +21,8 @@ test('open, crop, adjust, undo, persist, export and stay private', async ({
   await page.goto('./')
   await page.getByRole('button', { name: 'Try a sample image' }).click()
   await expect(page.locator('#save-status')).toHaveText('Saved on this device')
-  await page.getByRole('button', { name: '⌗ Crop', exact: true }).click()
-  await page.getByLabel('Aspect ratio', { exact: true }).selectOption('1')
+  await page.getByRole('tab', { name: 'Crop' }).click()
+  await page.getByRole('button', { name: /^1:1/ }).click()
   await page.locator('#crop-box').press('ArrowRight')
   await page.getByRole('button', { name: 'Apply crop', exact: true }).click()
   await page.getByRole('button', { name: 'Golden', exact: true }).click()
@@ -30,7 +30,9 @@ test('open, crop, adjust, undo, persist, export and stay private', async ({
   await page.getByRole('button', { name: 'Undo last edit' }).click()
   await expect(page.locator('#exposure')).toHaveValue('0')
   await page.getByRole('button', { name: 'Redo last edit' }).click()
+  await page.getByRole('tab', { name: 'Crop' }).click()
   await page.getByRole('button', { name: 'Rotate clockwise' }).click()
+  await page.getByRole('tab', { name: 'Adjust' }).click()
   await expect(page.locator('#dimensions')).toHaveText('1,600 × 1,600 px')
   await expect(page.locator('#save-status')).toHaveText('Saved on this device')
   await page.reload()
@@ -46,13 +48,12 @@ test('open, crop, adjust, undo, persist, export and stay private', async ({
     timeout: 15000,
   })
   await second.close()
-  await page.getByRole('button', { name: 'Export ↗', exact: true }).click()
-  await page.getByLabel('File format').selectOption('image/png')
-  await page.getByLabel('Longest edge').selectOption('640')
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByLabel('Format').selectOption('image/png')
+  await page.getByLabel('Size').selectOption('custom')
+  await page.getByLabel('Width in pixels').fill('640')
   const downloadEvent = page.waitForEvent('download')
-  await page
-    .getByRole('button', { name: 'Export photo ↗', exact: true })
-    .click()
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
   const download = await downloadEvent
   expect(download.suggestedFilename()).toBe('Quiet hills-edited.png')
   const stream = await download.createReadStream(),
@@ -130,3 +131,68 @@ for (const width of [360, 768, 1440])
       ),
     ).toBe(true)
   })
+
+test('remove the background, hide an area, and export a transparent PNG', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('./')
+  await page.getByRole('button', { name: 'Try a sample image' }).click()
+  await expect(page.locator('#export')).toBeEnabled()
+  await page.getByRole('tab', { name: 'Background' }).click()
+  await page.getByRole('button', { name: 'Remove background' }).click()
+  await expect(page.locator('#bg-status')).toContainText('Background removed', {
+    timeout: 60000,
+  })
+  await expect(
+    page.getByRole('button', { name: 'Transparent', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('tab', { name: 'Blur area' }).click()
+  await page.getByRole('button', { name: 'Draw an area' }).click()
+  const box = (await page.locator('#draw-overlay').boundingBox())!
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.1)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.4, {
+    steps: 5,
+  })
+  await page.mouse.up()
+  await expect(page.getByText('Area 1 · Blur')).toBeVisible()
+  await expect(page.locator('#save-status')).toHaveText('Saved on this device')
+  await page.reload()
+  await expect(page.locator('#export')).toBeEnabled()
+  await expect(page.getByText('Area 1 · Blur')).toBeAttached()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByLabel('Format')).toHaveValue('image/png')
+  await page.getByLabel('Size').selectOption('0.25')
+  const downloadEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
+  const download = await downloadEvent
+  const stream = await download.createReadStream(),
+    chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+  const alpha = await page.evaluate(async (base64) => {
+    const blob = new Blob(
+      [Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))],
+      { type: 'image/png' },
+    )
+    const bitmap = await createImageBitmap(blob),
+      canvas = new OffscreenCanvas(bitmap.width, bitmap.height),
+      ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const values = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+    let clear = 0,
+      solid = 0
+    for (let i = 3; i < values.length; i += 4) {
+      if (values[i] === 0) clear++
+      if (values[i] === 255) solid++
+    }
+    return {
+      clear: clear / (values.length / 4),
+      solid: solid / (values.length / 4),
+    }
+  }, Buffer.concat(chunks).toString('base64'))
+  expect(alpha.clear).toBeGreaterThan(0.1)
+  expect(alpha.solid).toBeGreaterThan(0.01)
+  expect(errors).toEqual([])
+})

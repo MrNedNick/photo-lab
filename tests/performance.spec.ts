@@ -50,16 +50,12 @@ test('12 MP photo remains editable during export and supports cancellation', asy
     })
     return times
   })
-  await page.getByRole('button', { name: 'Export ↗', exact: true }).click()
-  await page
-    .getByRole('button', { name: 'Export photo ↗', exact: true })
-    .click()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
   await page.getByRole('button', { name: 'Cancel export', exact: true }).click()
   await expect(page.locator('#export-status')).toContainText('cancelled')
   const download = page.waitForEvent('download')
-  await page
-    .getByRole('button', { name: 'Export photo ↗', exact: true })
-    .click()
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
   const heartbeat = await page.evaluate(() => {
     let count = 0
     const timer = setInterval(() => count++, 10)

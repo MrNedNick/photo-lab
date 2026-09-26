@@ -19,9 +19,9 @@ beforeEach(async () => {
   await import('./main')
 })
 it('offers an accessible starting point and prevents editing before a photo is open', () => {
-  expect(screen.getByRole('button', { name: 'Choose a photo ↗' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Open a photo' })).toBeTruthy()
   expect(
-    (screen.getByRole('button', { name: 'Export ↗' }) as HTMLButtonElement)
+    (screen.getByRole('button', { name: 'Export' }) as HTMLButtonElement)
       .disabled,
   ).toBe(true)
   expect(
@@ -42,7 +42,29 @@ it('rejects unsupported files with a useful message and keeps the workspace usab
   expect(
     screen.getByText('Choose a JPEG, PNG, WebP or AVIF photo.'),
   ).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Choose a photo ↗' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Open a photo' })).toBeTruthy()
+})
+it('opens straight into the editor with its tools, and switches tools like tabs', () => {
+  expect(
+    screen.getByRole('heading', { name: 'Free photo editor' }),
+  ).toBeTruthy()
+  const tabs = screen.getAllByRole('tab')
+  expect(tabs.map((t) => t.textContent)).toEqual([
+    'Adjust',
+    'Crop',
+    'Background',
+    'Blur area',
+  ])
+  fireEvent.click(screen.getByRole('tab', { name: 'Background' }))
+  expect(
+    screen
+      .getByRole('tab', { name: 'Background' })
+      .getAttribute('aria-selected'),
+  ).toBe('true')
+  expect(screen.getByRole('tabpanel', { name: 'Background' })).toBeTruthy()
+  expect(document.querySelector<HTMLElement>('#panel-adjust')!.hidden).toBe(
+    true,
+  )
 })
 it('persists an accessible theme toggle', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))

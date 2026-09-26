@@ -1,9 +1,11 @@
-import { freshEdit, histogram, type Edit } from './model'
+import { histogram, normalizeEdit, type Edit } from './model'
 import { Renderer } from './renderer'
 interface Request {
   id: number
-  kind: 'load' | 'histogram' | 'export'
+  kind: 'load' | 'histogram' | 'export' | 'mask' | 'thumbs'
+  edits?: Edit[]
   file?: Blob
+  mask?: Blob
   edit?: Edit
   max?: number
   format?: string
@@ -33,17 +35,47 @@ worker.onmessage = async ({ data }) => {
         resizeQuality: 'high',
       })
       bitmap.close()
-      canvas = new OffscreenCanvas(1, 1)
-      renderer?.dispose()
-      renderer = new Renderer(canvas)
+      // One context for the whole session: a new photo is just a new texture.
+      // Recreating contexts per photo stalls software GPUs.
+      canvas ||= new OffscreenCanvas(1, 1)
+      renderer ||= new Renderer(canvas)
       renderer.load(preview)
+      renderer.loadMask(null)
       worker.postMessage({ id, kind, bitmap: preview, width, height }, [
         preview,
       ])
     } else if (kind === 'histogram') {
       if (!renderer) return
-      renderer.render(data.edit!, 256)
+      renderer.render(normalizeEdit(data.edit!), 256)
       worker.postMessage({ id, kind, bins: histogram(renderer.pixels()) })
+    } else if (kind === 'mask') {
+      if (!renderer) return
+      const mask = data.mask ? await createImageBitmap(data.mask) : null
+      renderer.loadMask(mask)
+      mask?.close()
+    } else if (kind === 'thumbs') {
+      if (!renderer || !canvas) return
+      // Plain pixels rather than GPU bitmaps: the previews are tiny, and
+      // sharing GPU images across threads stalls software renderers.
+      const images = data.edits!.map((edit) => {
+        const { width, height } = renderer!.render(
+          normalizeEdit(edit),
+          data.max,
+        )
+        const pixels = renderer!.pixels(),
+          rows = new Uint8ClampedArray(pixels.length),
+          stride = width * 4
+        for (let y = 0; y < height; y++)
+          rows.set(
+            pixels.subarray((height - 1 - y) * stride, (height - y) * stride),
+            y * stride,
+          )
+        return new ImageData(rows, width, height)
+      })
+      worker.postMessage(
+        { id, kind, images },
+        images.map((image) => image.data.buffer),
+      )
     } else {
       worker.postMessage({
         id,
@@ -55,13 +87,18 @@ worker.onmessage = async ({ data }) => {
       renderer = new Renderer(canvas)
       renderer.load(bitmap)
       bitmap.close()
+      if (data.mask) {
+        const mask = await createImageBitmap(data.mask)
+        renderer.loadMask(mask)
+        mask.close()
+      }
       worker.postMessage({
         id,
         kind: 'progress',
         value: 'Rendering your edits…',
       })
       const size = renderer.render(
-        data.edit || freshEdit(),
+        normalizeEdit(data.edit || {}),
         data.max || Infinity,
       )
       worker.postMessage({

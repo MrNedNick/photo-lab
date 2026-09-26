@@ -5,6 +5,8 @@ export interface Project {
   entries: Edit[]
   index: number
   updated: number
+  /** Background cut-out mask, present once the background was removed. */
+  mask?: Blob
 }
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
