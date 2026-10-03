@@ -141,26 +141,7 @@ function expectSameLook(file: Stats, shown: Stats, tolerance = 24) {
     ).toBeLessThan(tolerance)
 }
 
-/*
- * Known bugs, numbered as in the project log (stage 3, T31). Marked fixme
- * until they are fixed, so the rest of the matrix stays meaningful.
- */
-const isPhone = () => (test.info().project.use.viewport?.width ?? 1440) < 600
 const isEngine = (name: string) => test.info().project.use.browserName === name
-const knownBug = {
-  // B1: WebKit refuses Blobs in IndexedDB in private sessions — nothing is saved.
-  webkitSave: () =>
-    test.fixme(isEngine('webkit'), 'B1: WebKit cannot save the photo'),
-  // B2: at phone width the "not saved" notice covers the tool rail and eats taps.
-  noticeOverRail: () =>
-    test.fixme(
-      isEngine('webkit') && isPhone(),
-      'B2: notice covers the tools on phones',
-    ),
-  // B3: Chromium refuses the clipboard before the image is ready; the status sticks.
-  copyStatus: () =>
-    test.fixme(isEngine('chromium'), 'B3: copy status never settles'),
-}
 
 const errors = new WeakMap<Page, string[]>()
 test.beforeEach(({ page }) => {
@@ -264,7 +245,6 @@ test.describe('tools', () => {
   })
 
   test('Crop: a 1:1 frame exports a square', async ({ page }) => {
-    knownBug.noticeOverRail()
     await openSample(page)
     await page.getByRole('tab', { name: 'Crop' }).click()
     await page.getByRole('button', { name: /^1:1/ }).click()
@@ -284,7 +264,6 @@ test.describe('tools', () => {
   test('Rotate and straighten: the export turns with the preview', async ({
     page,
   }) => {
-    knownBug.noticeOverRail()
     await openSample(page)
     const [w, h] = await shownSize(page)
     await page.getByRole('tab', { name: 'Crop' }).click()
@@ -302,7 +281,6 @@ test.describe('tools', () => {
   })
 
   test('Blur area: the hidden area is in the export', async ({ page }) => {
-    knownBug.noticeOverRail()
     await openSample(page)
     await page.getByRole('tab', { name: 'Blur area' }).click()
     await page.getByRole('button', { name: 'Pixelate', exact: true }).click()
@@ -327,7 +305,6 @@ test.describe('tools', () => {
   test('Background: the cut-out exports as a transparent PNG', async ({
     page,
   }) => {
-    knownBug.noticeOverRail()
     await openSample(page)
     await page.getByRole('tab', { name: 'Background' }).click()
     await page.getByRole('button', { name: 'Remove background' }).click()
@@ -344,27 +321,39 @@ test.describe('tools', () => {
     expect(file.clear).toBeLessThan(0.99)
   })
 
-  test('Copy: the image goes to the clipboard or the button explains why not', async ({
-    page,
-  }) => {
-    knownBug.copyStatus()
+  async function copyOutcome(page: Page) {
     await openSample(page)
     await page.getByRole('button', { name: 'Export', exact: true }).click()
     const copy = page.getByRole('button', { name: 'Copy image' })
-    // Browsers without image clipboard support never see the button.
-    if (!(await copy.isVisible())) return
+    // Browsers without image clipboard support never show the button.
+    if (!(await copy.isVisible())) return null
     await copy.click()
-    await expect(page.locator('#export-status')).toContainText(
-      /Copied|Use Download/,
-      {
-        timeout: 20000,
-      },
+    const status = page.locator('#export-status')
+    await expect(status).toContainText(/Copied|Use Download/, {
+      timeout: 20000,
+    })
+    // The answer stays: nothing overwrites it with "Copying…" later on.
+    await page.waitForTimeout(7000)
+    return status.textContent()
+  }
+
+  test('Copy: the image goes to the clipboard', async ({ page, context }) => {
+    if (isEngine('chromium'))
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    const outcome = await copyOutcome(page)
+    if (isEngine('chromium')) expect(outcome).toContain('Copied')
+    else if (outcome) expect(outcome).toMatch(/Copied|Use Download/)
+  })
+
+  test('Copy refused: the status says what to do instead', async ({ page }) => {
+    test.skip(
+      !isEngine('chromium'),
+      'only Chromium lets a test refuse the clipboard',
     )
-    await expect(page.locator('#export-status')).toContainText('Copied')
+    expect(await copyOutcome(page)).toContain('Use Download')
   })
 
   test('the photo and its edits survive a reload', async ({ page }) => {
-    knownBug.webkitSave()
     await openFile(page, 'portrait-exif.jpg')
     await page.getByRole('button', { name: 'Mono', exact: true }).click()
     await expect(page.locator('#save-status')).toHaveText(

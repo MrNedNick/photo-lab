@@ -918,6 +918,11 @@ dialog input[type='number'] {
     padding: 28px 18px;
     margin: 12px;
   }
+  /* The tools and their settings sit at the bottom here: messages go on top. */
+  #notice {
+    top: 62px;
+    bottom: auto;
+  }
 }
 @media (max-width: 400px) {
   .badge {

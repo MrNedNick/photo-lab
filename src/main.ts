@@ -1323,6 +1323,8 @@ $('#copy').onclick = () => {
     timer = 0
   result.then(
     () => {
+      // The browser may have said no before the image was even ready.
+      if (settled) return
       $('#export-status').textContent = 'Copying to the clipboard…'
       // Some browsers leave the request pending instead of refusing it.
       timer = window.setTimeout(() => {
@@ -1336,28 +1338,32 @@ $('#copy').onclick = () => {
     },
     () => {},
   )
-  navigator.clipboard
-    .write([new ClipboardItem({ 'image/png': result.then((r) => r.blob) })])
-    .then(
-      () =>
-        result.then((r) => {
-          settled = true
-          clearTimeout(timer)
-          $('#export-status').textContent =
-            `Copied · ${r.width} × ${r.height} px. Paste it anywhere.`
-        }),
-      (error: Error) => {
+  const image = result.then((r) => r.blob)
+  // Cancelling the render after a refusal rejects this too; nobody waits for it then.
+  image.catch(() => {})
+  navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]).then(
+    () =>
+      result.then((r) => {
         settled = true
         clearTimeout(timer)
-        failed(
-          error.message === 'cancelled'
-            ? error
-            : new Error(
-                'Copying images is blocked in this browser. Use Download instead.',
-              ),
-        )
-      },
-    )
+        $('#export-status').textContent =
+          `Copied · ${r.width} × ${r.height} px. Paste it anywhere.`
+      }),
+    (error: Error) => {
+      settled = true
+      clearTimeout(timer)
+      // A refusal can come before the image is ready: stop rendering it,
+      // or its progress messages would hide the answer.
+      if (error.message !== 'cancelled') cancelExport()
+      failed(
+        error.message === 'cancelled'
+          ? error
+          : new Error(
+              'Copying images is blocked in this browser. Use Download instead.',
+            ),
+      )
+    },
+  )
 }
 $('#share').onclick = () => {
   if (!photo) return

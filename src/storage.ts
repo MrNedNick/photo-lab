@@ -16,25 +16,57 @@ function open(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error)
   })
 }
+/**
+ * Safari's private windows refuse Blobs in IndexedDB. The first refusal
+ * switches to storing plain bytes, which every browser accepts; reading
+ * understands both forms.
+ */
+interface Bytes {
+  bytes: ArrayBuffer
+  type: string
+}
+type Stored = Omit<Project, 'file' | 'mask'> & {
+  file: Blob | Bytes
+  mask?: Blob | Bytes
+}
+let blobsRefused = false
+const bytesCache = new WeakMap<Blob, Bytes>()
+async function toBytes(blob: Blob): Promise<Bytes> {
+  let cached = bytesCache.get(blob)
+  if (!cached) {
+    cached = { bytes: await blob.arrayBuffer(), type: blob.type }
+    bytesCache.set(blob, cached)
+  }
+  return cached
+}
+const toBlob = (value: Blob | Bytes) =>
+  value instanceof Blob ? value : new Blob([value.bytes], { type: value.type })
+
 export async function readProject(): Promise<Project | undefined> {
   const db = await open()
   try {
-    return await new Promise((resolve, reject) => {
+    const stored = await new Promise<Stored | undefined>((resolve, reject) => {
       const tx = db.transaction('projects', 'readonly'),
         request = tx.objectStore('projects').get('current')
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
+    if (!stored) return undefined
+    return {
+      ...stored,
+      file: toBlob(stored.file),
+      mask: stored.mask && toBlob(stored.mask),
+    }
   } finally {
     db.close()
   }
 }
-export async function saveProject(project: Project | null) {
+async function write(value: Stored | null) {
   const db = await open()
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('projects', 'readwrite')
-      if (project) tx.objectStore('projects').put(project, 'current')
+      if (value) tx.objectStore('projects').put(value, 'current')
       else tx.objectStore('projects').delete('current')
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
@@ -43,4 +75,20 @@ export async function saveProject(project: Project | null) {
   } finally {
     db.close()
   }
+}
+const asBytes = async (project: Project): Promise<Stored> => ({
+  ...project,
+  file: await toBytes(project.file),
+  mask: project.mask && (await toBytes(project.mask)),
+})
+export async function saveProject(project: Project | null) {
+  if (!project) return write(null)
+  if (!blobsRefused) {
+    try {
+      return await write(project)
+    } catch {
+      blobsRefused = true
+    }
+  }
+  return write(await asBytes(project))
 }
