@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './tests',
+  // The cross-browser matrix has its own config: npm run test:matrix
+  testIgnore: '**/matrix/**',
   fullyParallel: false,
   workers: 1,
   timeout: 90000,
