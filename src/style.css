@@ -1016,3 +1016,25 @@ dialog input[type='number'] {
 #compress-result .button {
   margin-top: 8px;
 }
+
+/* ---------- batch ---------- */
+.batch-hint {
+  max-width: 420px;
+  font-size: 13px;
+}
+dialog label.check {
+  align-items: center;
+  margin-top: 14px;
+  cursor: pointer;
+}
+dialog label.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+#batch-progress {
+  width: 100%;
+  height: 8px;
+  margin-top: 14px;
+  accent-color: var(--accent);
+}

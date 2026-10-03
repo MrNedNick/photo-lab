@@ -110,8 +110,12 @@ async function exportFile(
   options: { format: 'image/jpeg' | 'image/png'; size?: string },
 ): Promise<Buffer> {
   await page.getByRole('button', { name: 'Export', exact: true }).click()
-  await page.getByLabel('Format').selectOption(options.format)
   await page
+    .locator('#export-dialog')
+    .getByLabel('Format')
+    .selectOption(options.format)
+  await page
+    .locator('#export-dialog')
     .getByLabel('Size', { exact: true })
     .selectOption(options.size ?? 'full')
   const downloadEvent = page.waitForEvent('download', { timeout: 120000 })
@@ -228,7 +232,9 @@ test.describe('opening photos', () => {
     const corner: [number, number][] = [[0.04, 0.04]]
     const shown = await preview(page, corner)
     await page.getByRole('button', { name: 'Export', exact: true }).click()
-    await expect(page.getByLabel('Format')).toHaveValue('image/jpeg')
+    await expect(
+      page.locator('#export-dialog').getByLabel('Format'),
+    ).toHaveValue('image/jpeg')
     await page.getByRole('button', { name: 'Close export dialog' }).click()
     const file = await stats(
       page,
@@ -384,6 +390,59 @@ test.describe('tools', () => {
       const file = await stats(page, bytes, 'image/jpeg')
       expect(file.width / file.height).toBeCloseTo(4 / 3, 1)
     }
+  })
+
+  test('Batch: three photos come back resized in one ZIP', async ({ page }) => {
+    await page.goto('./')
+    await page
+      .locator('#file')
+      .setInputFiles(
+        ['portrait-exif.jpg', 'panorama.jpg', 'transparent.png'].map(
+          (f) => FIXTURES + f,
+        ),
+      )
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.locator('#batch-files')).toContainText('3 photos')
+    await page.locator('#batch-dialog').getByLabel('Size').selectOption('640')
+    await page.getByRole('button', { name: 'Process 3 photos' }).click()
+    await expect(page.locator('#batch-status')).toContainText('ZIP', {
+      timeout: 120000,
+    })
+    const downloadEvent = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download ZIP' }).click()
+    const download = await downloadEvent
+    expect(download.suggestedFilename()).toBe('photos-3.zip')
+    const chunks: Buffer[] = []
+    for await (const chunk of await download.createReadStream())
+      chunks.push(Buffer.from(chunk))
+    const archive = Buffer.concat(chunks)
+    // Walk the central directory: three stored files, each a real picture.
+    const end = archive.length - 22
+    expect(archive.readUInt32LE(end)).toBe(0x06054b50)
+    expect(archive.readUInt16LE(end + 10)).toBe(3)
+    let at = archive.readUInt32LE(end + 16)
+    const sizes: [string, number, number][] = []
+    for (let k = 0; k < 3; k++) {
+      const size = archive.readUInt32LE(at + 24),
+        nameLength = archive.readUInt16LE(at + 28),
+        local = archive.readUInt32LE(at + 42)
+      const name = archive.subarray(at + 46, at + 46 + nameLength).toString()
+      const start = local + 30 + archive.readUInt16LE(local + 26)
+      const ext = name.split('.').pop()!
+      const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+      const file = await stats(
+        page,
+        archive.subarray(start, start + size),
+        type,
+      )
+      sizes.push([name.replace(/\.\w+$/, ''), file.width, file.height])
+      at += 46 + nameLength
+    }
+    expect(sizes).toEqual([
+      ['portrait-exif', 480, 640],
+      ['panorama', 640, 80],
+      ['transparent', 640, 480],
+    ])
   })
 
   async function copyOutcome(page: Page) {

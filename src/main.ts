@@ -17,6 +17,7 @@ import { icon } from './icons'
 import { MaskLayer } from './mask'
 import { heicToJpeg, isHeic } from './heic'
 import { formatBytes, TARGETS } from './compress'
+import { uniqueNames, zip, type ZipEntry } from './zip'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!
@@ -124,13 +125,14 @@ $('#app').innerHTML = `
   ${tools.map((t, i) => `<button role="tab" id="tab-${t.id}" data-tool="${t.id}" aria-controls="panel-${t.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${icon(t.id)}<span>${t.label}</span></button>`).join('')}
 </nav>
 <main class="stage-area">
-  <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif" hidden>
+  <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif" multiple hidden>
   <div id="stage" class="stage">
     <div id="empty" class="empty">
       <div class="empty-icon">${icon('image')}</div>
       <h1>Free photo editor</h1>
       <p>Drop a photo here, paste it with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>V</kbd>, or pick one from your device.</p>
       <div class="empty-actions"><button id="choose" class="button primary large">${icon('open')}<span>Open a photo</span></button><button id="sample" class="button large">Try a sample image</button></div>
+      <p class="batch-hint">Many photos? Pick or drop up to 50 at once — resize, convert and compress them into one ZIP.</p>
       <p class="formats">Crop, adjust, remove the background, blur faces and plates. JPEG, PNG, WebP, AVIF and iPhone HEIC up to 50 MP. Your photo never leaves this device.</p>
     </div>
     <div id="canvas-wrap" class="canvas-wrap" hidden>
@@ -236,6 +238,22 @@ $('#app').innerHTML = `
     <button id="share" type="button" class="button" hidden>${icon('share')}<span>Share</span></button>
     <button id="cancel-export" type="button" class="button" hidden>Cancel export</button>
     <a id="download-again" class="text-button" hidden>Download again</a>
+  </div>
+</form></dialog>
+<dialog id="batch-dialog"><form method="dialog">
+  <div class="panel-heading"><h2>Batch</h2><button class="icon-button" aria-label="Close batch dialog">${icon('close')}</button></div>
+  <p id="batch-files" class="hint"></p>
+  <label for="batch-size">Size</label><select id="batch-size"><option value="0">Original size</option><option value="2048">2048 px long edge</option><option value="1080" selected>1080 px long edge · social</option><option value="640">640 px long edge · small</option></select>
+  <label for="batch-format">Format</label><select id="batch-format"><option value="image/jpeg">JPEG</option><option value="image/png">PNG · lossless</option></select>
+  <label for="batch-target">Compression</label><select id="batch-target"><option value="0">Quality 85 %</option>${TARGETS.map((t) => `<option value="${t.bytes}">Each file under ${t.label}</option>`).join('')}</select>
+  <label class="check" for="batch-bg"><span>Remove the background</span><input id="batch-bg" type="checkbox"></label>
+  <p id="batch-note" class="hint"></p>
+  <progress id="batch-progress" max="1" value="0" hidden></progress>
+  <p id="batch-status" role="status"></p>
+  <div class="dialog-actions">
+    <button id="batch-run" type="button" class="button primary"></button>
+    <button id="batch-cancel" type="button" class="button" hidden>Cancel</button>
+    <button id="batch-zip" type="button" class="button primary" hidden>${icon('download')}<span>Download ZIP</span></button>
   </div>
 </form></dialog>`
 
@@ -607,8 +625,9 @@ $('#open').onclick = choose
 $('#choose').onclick = choose
 $<HTMLInputElement>('#file').onchange = (e) => {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) void openPhoto(file, file.name)
+  const files = [...(input.files ?? [])]
+  if (files.length > 1) openBatch(files)
+  else if (files[0]) void openPhoto(files[0], files[0].name)
   input.value = ''
 }
 $('#stage').ondragover = (e) => {
@@ -619,8 +638,9 @@ $('#stage').ondragleave = () => $('#stage').classList.remove('dragging')
 $('#stage').ondrop = (e) => {
   e.preventDefault()
   $('#stage').classList.remove('dragging')
-  const file = e.dataTransfer?.files[0]
-  if (file) void openPhoto(file, file.name)
+  const files = [...(e.dataTransfer?.files ?? [])]
+  if (files.length > 1) openBatch(files)
+  else if (files[0]) void openPhoto(files[0], files[0].name)
 }
 document.addEventListener('paste', (e) => {
   const file = [...(e.clipboardData?.files ?? [])].find((f) =>
@@ -1164,8 +1184,15 @@ if ('OffscreenCanvas' in window)
     // Browsers that cannot encode a format quietly return PNG instead.
     void probe.convertToBlob({ type }).then(
       (blob) => {
-        if (blob.type === type && type === 'image/webp')
+        if (blob.type === type && type === 'image/webp') {
           $('[data-cformat="image/webp"]').hidden = false
+          // Small and keeps transparency: the default for a batch.
+          $('#batch-format').insertAdjacentHTML(
+            'afterbegin',
+            '<option value="image/webp">WebP · small, keeps transparency</option>',
+          )
+          $<HTMLSelectElement>('#batch-format').value = 'image/webp'
+        }
         if (blob.type === type)
           $('#format').insertAdjacentHTML(
             'beforeend',
@@ -1509,6 +1536,183 @@ $('#compress-download').onclick = () => {
   const link = document.createElement('a')
   link.href = compressUrl
   link.download = `${name.replace(/\.[^.]+$/, '')}-${formatBytes(compressTargetBytes()).replace(' ', '')}.${compressFormat === 'image/webp' ? 'webp' : 'jpg'}`
+  link.click()
+}
+
+/* ---------- batch ---------- */
+const MAX_BATCH = 50
+let batchFiles: File[] = [],
+  batchUrl = '',
+  batchCancelled = false,
+  batchStop: (() => void) | undefined,
+  batchSegment: Worker | undefined
+function openBatch(files: File[]) {
+  batchFiles = files.slice(0, MAX_BATCH)
+  const total = batchFiles.reduce((sum, f) => sum + f.size, 0)
+  $('#batch-files').textContent =
+    `${batchFiles.length} photos · ${formatBytes(total)}` +
+    (files.length > MAX_BATCH ? ` · only the first ${MAX_BATCH} are used` : '')
+  $('#batch-run').textContent = `Process ${batchFiles.length} photos`
+  $('#batch-run').hidden = false
+  $('#batch-zip').hidden = true
+  $('#batch-progress').hidden = true
+  $('#batch-status').textContent = ''
+  batchNote()
+  $<HTMLDialogElement>('#batch-dialog').showModal()
+}
+function batchNote() {
+  const bg = $<HTMLInputElement>('#batch-bg').checked,
+    format = $<HTMLSelectElement>('#batch-format').value
+  $('#batch-note').textContent = bg
+    ? format === 'image/jpeg'
+      ? 'JPEG has no transparency: the subject goes on white.'
+      : 'The cut-out model (4.6 MB) downloads once; each photo takes a few seconds.'
+    : ''
+}
+$('#batch-bg').onchange = batchNote
+$('#batch-format').onchange = batchNote
+/** Runs one photo through the export worker; a fresh worker each time, so memory goes back. */
+function batchRender(
+  file: Blob,
+  mask: Blob | undefined,
+  options: { format: string; max: number; target: number; onWhite: boolean },
+) {
+  return new Promise<{ blob: Blob }>((resolve, reject) => {
+    const w = new Worker(new URL('./photo.worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    const done = () => {
+      w.terminate()
+      batchStop = undefined
+    }
+    batchStop = () => {
+      done()
+      reject(new Error('cancelled'))
+    }
+    w.onmessage = ({ data }) => {
+      if (data.kind === 'progress') return
+      done()
+      if (data.kind === 'error') return reject(new Error(data.message))
+      data.before?.close()
+      data.after?.close()
+      resolve(data)
+    }
+    w.onerror = () => {
+      done()
+      reject(new Error('This photo could not be processed.'))
+    }
+    w.postMessage({
+      id: 1,
+      kind: options.target ? 'compress' : 'export',
+      file,
+      mask,
+      edit: {
+        ...freshEdit(),
+        background: mask ? (options.onWhite ? 'color' : 'transparent') : 'keep',
+      },
+      format: options.format,
+      quality: 0.85,
+      max: options.max || Infinity,
+      target: options.target || undefined,
+    })
+  })
+}
+function batchCutout(file: Blob) {
+  batchSegment ||= new Worker(new URL('./segment.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+  const w = batchSegment
+  return new Promise<Blob>((resolve, reject) => {
+    batchStop = () => reject(new Error('cancelled'))
+    w.onmessage = ({ data }) => {
+      if (data.kind === 'mask') resolve(data.blob)
+      else if (data.kind === 'error') reject(new Error(data.message))
+    }
+    w.onerror = () => reject(new Error('The background could not be removed.'))
+    w.postMessage({ id: 1, file, max: 2048 })
+  })
+}
+function batchBusy(busy: boolean) {
+  $('#batch-run').hidden = busy
+  $('#batch-cancel').hidden = !busy
+  $('#batch-progress').hidden = !busy
+  for (const id of [
+    '#batch-size',
+    '#batch-format',
+    '#batch-target',
+    '#batch-bg',
+  ])
+    $<HTMLInputElement>(id).disabled = busy
+}
+$('#batch-run').onclick = async () => {
+  const format = $<HTMLSelectElement>('#batch-format').value
+  const options = {
+    format,
+    max: +$<HTMLSelectElement>('#batch-size').value,
+    target: +$<HTMLSelectElement>('#batch-target').value,
+    onWhite: format === 'image/jpeg',
+  }
+  const bg = $<HTMLInputElement>('#batch-bg').checked
+  const progress = $<HTMLProgressElement>('#batch-progress')
+  const files = batchFiles
+  batchCancelled = false
+  batchBusy(true)
+  progress.max = files.length
+  const out: ZipEntry[] = [],
+    failed: string[] = []
+  const started = performance.now()
+  for (const [i, file] of files.entries()) {
+    if (batchCancelled) break
+    progress.value = i
+    $('#batch-status').textContent =
+      `Photo ${i + 1} of ${files.length} · ${file.name}`
+    try {
+      let source: Blob = file
+      if (await isHeic(source, file.name)) source = await heicToJpeg(source)
+      const cut = bg ? await batchCutout(source) : undefined
+      const { blob } = await batchRender(source, cut, options)
+      const ext = blob.type.split('/')[1]!.replace('jpeg', 'jpg')
+      out.push({ name: `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, blob })
+    } catch (error) {
+      if (batchCancelled) break
+      failed.push(`${file.name} (${(error as Error).message})`)
+    }
+  }
+  batchSegment?.terminate()
+  batchSegment = undefined
+  batchBusy(false)
+  if (batchCancelled) {
+    $('#batch-status').textContent = 'Cancelled. Nothing was saved.'
+    return
+  }
+  progress.value = files.length
+  if (!out.length) {
+    $('#batch-status').textContent =
+      `None of the photos could be processed: ${failed.join(', ')}`
+    return
+  }
+  const names = uniqueNames(out.map((e) => e.name))
+  const archive = await zip(out.map((e, i) => ({ ...e, name: names[i]! })))
+  if (batchUrl) URL.revokeObjectURL(batchUrl)
+  batchUrl = URL.createObjectURL(archive)
+  performance.measure('batch', { start: started, end: performance.now() })
+  $('#batch-status').textContent =
+    `${out.length} photos · ZIP ${formatBytes(archive.size)}` +
+    (failed.length ? ` · skipped: ${failed.join(', ')}` : '')
+  $('#batch-run').hidden = true
+  $('#batch-zip').hidden = false
+}
+$('#batch-cancel').onclick = () => {
+  batchCancelled = true
+  batchStop?.()
+  batchSegment?.terminate()
+  batchSegment = undefined
+}
+$<HTMLDialogElement>('#batch-dialog').onclose = () => $('#batch-cancel').click()
+$('#batch-zip').onclick = () => {
+  const link = document.createElement('a')
+  link.href = batchUrl
+  link.download = `photos-${batchFiles.length}.zip`
   link.click()
 }
 

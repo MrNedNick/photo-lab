@@ -49,8 +49,14 @@ test('open, crop, adjust, undo, persist, export and stay private', async ({
   })
   await second.close()
   await page.getByRole('button', { name: 'Export', exact: true }).click()
-  await page.getByLabel('Format').selectOption('image/png')
-  await page.getByLabel('Size', { exact: true }).selectOption('custom')
+  await page
+    .locator('#export-dialog')
+    .getByLabel('Format')
+    .selectOption('image/png')
+  await page
+    .locator('#export-dialog')
+    .getByLabel('Size', { exact: true })
+    .selectOption('custom')
   await page.getByLabel('Width in pixels').fill('640')
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download', exact: true }).click()
@@ -176,8 +182,13 @@ test('remove the background, hide an area, and export a transparent PNG', async 
   await expect(page.locator('#export')).toBeEnabled()
   await expect(page.getByText('Area 1 · Blur')).toBeAttached()
   await page.getByRole('button', { name: 'Export', exact: true }).click()
-  await expect(page.getByLabel('Format')).toHaveValue('image/png')
-  await page.getByLabel('Size', { exact: true }).selectOption('0.25')
+  await expect(page.locator('#export-dialog').getByLabel('Format')).toHaveValue(
+    'image/png',
+  )
+  await page
+    .locator('#export-dialog')
+    .getByLabel('Size', { exact: true })
+    .selectOption('0.25')
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download', exact: true }).click()
   const download = await downloadEvent
