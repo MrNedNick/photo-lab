@@ -15,6 +15,7 @@ import { readProject, saveProject, type Project } from './storage'
 import { Renderer } from './renderer'
 import { icon } from './icons'
 import { MaskLayer } from './mask'
+import { heicToJpeg, isHeic } from './heic'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!
@@ -121,14 +122,14 @@ $('#app').innerHTML = `
   ${tools.map((t, i) => `<button role="tab" id="tab-${t.id}" data-tool="${t.id}" aria-controls="panel-${t.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${icon(t.id)}<span>${t.label}</span></button>`).join('')}
 </nav>
 <main class="stage-area">
-  <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden>
+  <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,.heic,.heif" hidden>
   <div id="stage" class="stage">
     <div id="empty" class="empty">
       <div class="empty-icon">${icon('image')}</div>
       <h1>Free photo editor</h1>
       <p>Drop a photo here, paste it with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>V</kbd>, or pick one from your device.</p>
       <div class="empty-actions"><button id="choose" class="button primary large">${icon('open')}<span>Open a photo</span></button><button id="sample" class="button large">Try a sample image</button></div>
-      <p class="formats">Crop, adjust, remove the background, blur faces and plates. JPEG, PNG, WebP, AVIF up to 50 MP. Your photo never leaves this device.</p>
+      <p class="formats">Crop, adjust, remove the background, blur faces and plates. JPEG, PNG, WebP, AVIF and iPhone HEIC up to 50 MP. Your photo never leaves this device.</p>
     </div>
     <div id="canvas-wrap" class="canvas-wrap" hidden>
       <canvas id="canvas" aria-label="Edited photo preview"></canvas>
@@ -473,10 +474,24 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
     announce('Choose a photo smaller than 50 MB.')
     return
   }
+  if (!saved && (await isHeic(file, filename))) {
+    // iPhone photos: converted once to a high-quality JPEG, then edited as usual.
+    setBusy(true, 'Converting your iPhone photo…')
+    try {
+      file = await heicToJpeg(file)
+    } catch (error) {
+      setBusy(false)
+      announce(
+        `Unable to open photo: ${(error as Error).message}`,
+        () => void openPhoto(file, filename),
+      )
+      return
+    }
+  }
   if (
     !['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)
   ) {
-    announce('Choose a JPEG, PNG, WebP or AVIF photo.')
+    announce('Choose a JPEG, PNG, WebP, AVIF or HEIC photo.')
     return
   }
   if (!('OffscreenCanvas' in window) || !('createImageBitmap' in window)) {

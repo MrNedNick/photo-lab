@@ -8,7 +8,7 @@ A free photo editor that runs entirely in your browser. Crop for Instagram or St
 
 ## What you can do
 
-- **Open** a JPEG, PNG, WebP or AVIF photo — pick it, drop it on the page or paste it with `Ctrl/⌘ V`. The editor fills the window from the first second; there is a sample photo if you just want to look around.
+- **Open** a JPEG, PNG, WebP, AVIF or iPhone HEIC photo — pick it, drop it on the page or paste it with `Ctrl/⌘ V`. The editor fills the window from the first second; there is a sample photo if you just want to look around.
 - **Crop** with presets named for where the photo goes — Instagram post (1:1) and portrait (4:5), Stories (9:16), YouTube (16:9), print (3:2), A4 — or freely. Drag the frame or its corners; a rule-of-thirds grid helps.
 - **Straighten** a tilted horizon by up to 45°. The frame zooms just enough that no empty corner ever shows. Rotate in quarter turns and flip either way.
 - **Adjust** exposure, contrast, saturation, warmth and vignette, or start from one of seven looks, each previewed on your own photo.
@@ -23,6 +23,8 @@ Light and dark themes, a 360 px phone layout and full keyboard use are all suppo
 ## Everything stays on your device
 
 The photo never leaves the browser. Background removal is a small neural network ([U²-Net-p](https://github.com/xuebinqin/U-2-Net), Apache-2.0) run by [ONNX Runtime Web](https://onnxruntime.ai/) in a worker. It is served from this site and downloaded only when you first ask for a cut-out: the 4.6 MB model plus a 3.7 MB (gzip) runtime, cached after that. On a laptop, the first cut-out takes about 2 seconds, download included.
+
+iPhone HEIC photos are converted to a high-quality JPEG on open. Safari reads them itself; other browsers fetch the [libheif](https://github.com/strukturag/libheif) decoder (LGPL-3.0, unmodified [libheif-js](https://github.com/catdad-experiments/libheif-js) build) as a separate module — only when a HEIC file arrives.
 
 The model is deliberately small, so it looks for the main subject in the frame: a person, an animal or a product on a calm background comes out cleanly, while a busy street can drag neighbouring objects into the cut-out.
 

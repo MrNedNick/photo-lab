@@ -1,4 +1,5 @@
 import { chromium } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -133,4 +134,29 @@ export default async function setup() {
     ]),
   )
   await browser.close()
+  makeHeic()
+}
+
+/** A real HEIC, encoded by macOS itself; elsewhere the HEIC test is skipped. */
+function makeHeic() {
+  if (process.platform !== 'darwin' || existsSync(FIXTURES + 'iphone.heic'))
+    return
+  const marker = FIXTURES + 'marker.jpg'
+  // The portrait without its EXIF block: a landscape with a red top-left corner.
+  execFileSync('sips', [
+    '-s',
+    'format',
+    'jpeg',
+    FIXTURES + 'portrait-exif.jpg',
+    '--out',
+    marker,
+  ])
+  execFileSync('sips', [
+    '-s',
+    'format',
+    'heic',
+    marker,
+    '--out',
+    FIXTURES + 'iphone.heic',
+  ])
 }

@@ -32,7 +32,7 @@ it('offers an accessible starting point and prevents editing before a photo is o
     ).disabled,
   ).toBe(true)
 })
-it('rejects unsupported files with a useful message and keeps the workspace usable', () => {
+it('rejects unsupported files with a useful message and keeps the workspace usable', async () => {
   const input = document.querySelector('#file')!
   fireEvent.change(input, {
     target: {
@@ -40,7 +40,7 @@ it('rejects unsupported files with a useful message and keeps the workspace usab
     },
   })
   expect(
-    screen.getByText('Choose a JPEG, PNG, WebP or AVIF photo.'),
+    await screen.findByText('Choose a JPEG, PNG, WebP, AVIF or HEIC photo.'),
   ).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Open a photo' })).toBeTruthy()
 })

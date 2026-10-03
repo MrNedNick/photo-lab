@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 import { FIXTURES } from './fixtures.setup'
 
@@ -210,6 +211,37 @@ test.describe('opening photos', () => {
       expect(s.samples[1]![1]).toBeGreaterThan(60)
     }
     expectSameLook(file, shown)
+  })
+
+  test('an iPhone HEIC photo opens, edits and saves as JPEG', async ({
+    page,
+  }) => {
+    test.skip(
+      !existsSync(FIXTURES + 'iphone.heic'),
+      'HEIC fixtures are made by macOS',
+    )
+    await openFile(page, 'iphone.heic')
+    const [w, h] = await shownSize(page)
+    expect(Math.max(w, h)).toBe(1600)
+    await expect(page.locator('#filename')).toHaveText('iphone.heic')
+    await page.getByRole('button', { name: 'Mono', exact: true }).click()
+    const corner: [number, number][] = [[0.04, 0.04]]
+    const shown = await preview(page, corner)
+    await page.getByRole('button', { name: 'Export', exact: true }).click()
+    await expect(page.getByLabel('Format')).toHaveValue('image/jpeg')
+    await page.getByRole('button', { name: 'Close export dialog' }).click()
+    const file = await stats(
+      page,
+      await exportFile(page, { format: 'image/jpeg' }),
+      'image/jpeg',
+      corner,
+    )
+    expect([file.width, file.height]).toEqual([w, h])
+    expectSameLook(file, shown)
+    // Mono turns the red corner grey: same in the preview and in the file.
+    expect(Math.abs(file.samples[0]![0]! - shown.samples[0]![0]!)).toBeLessThan(
+      30,
+    )
   })
 
   test('a narrow panorama exports at the social size', async ({ page }) => {
