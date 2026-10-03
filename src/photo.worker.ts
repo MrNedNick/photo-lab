@@ -80,9 +80,23 @@ worker.onmessage = async ({ data }) => {
         kind: 'progress',
         value: 'Decoding original photo…',
       })
-      const bitmap = await createImageBitmap(data.file!)
+      let bitmap = await createImageBitmap(data.file!)
       canvas = new OffscreenCanvas(1, 1)
       renderer = new Renderer(canvas)
+      // Wider than the GPU can take in one piece (often 8192 px): export at
+      // the largest size it can, rather than failing. Edits are stored as
+      // shares of the photo, so they land on the same spots.
+      const limit = renderer.maxTextureSize,
+        longest = Math.max(bitmap.width, bitmap.height)
+      if (longest > limit) {
+        const fitted = await createImageBitmap(bitmap, {
+          resizeWidth: Math.floor((bitmap.width * limit) / longest),
+          resizeHeight: Math.floor((bitmap.height * limit) / longest),
+          resizeQuality: 'high',
+        })
+        bitmap.close()
+        bitmap = fitted
+      }
       renderer.load(bitmap)
       bitmap.close()
       const edit = normalizeEdit(data.edit || {})

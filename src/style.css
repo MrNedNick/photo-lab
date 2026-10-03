@@ -998,7 +998,12 @@ dialog input[type='number'] {
   margin: 12px 0 8px;
   overflow: hidden;
   border-radius: 12px;
-  background: var(--raised);
+  /* Same checkerboard as the photo: transparent areas read as transparent. */
+  background: repeating-conic-gradient(
+      var(--check-a) 0 25%,
+      var(--check-b) 0 50%
+    )
+    0 0 / 16px 16px;
 }
 .compress-compare canvas {
   display: block;

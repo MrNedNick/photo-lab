@@ -51,6 +51,7 @@ export default async function setup() {
     'portrait-exif.jpg',
     'panorama.jpg',
     'noisy-12mp.jpg',
+    'wide-9000.jpg',
   ]
   if (files.every((f) => existsSync(FIXTURES + f))) return makeHeic()
   mkdirSync(FIXTURES, { recursive: true })
@@ -129,6 +130,12 @@ export default async function setup() {
     FIXTURES + 'noisy-12mp.jpg',
     Buffer.from(
       await draw({ w: 4000, h: 3000, type: 'image/jpeg', kind: 'noise' }),
+    ),
+  )
+  writeFileSync(
+    FIXTURES + 'wide-9000.jpg',
+    Buffer.from(
+      await draw({ w: 9000, h: 3000, type: 'image/jpeg', kind: 'scene' }),
     ),
   )
   writeFileSync(

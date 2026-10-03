@@ -166,6 +166,10 @@ export class Renderer {
     gl.uniform1i(gl.getUniformLocation(this.program, 'photo'), 0)
     gl.uniform1i(gl.getUniformLocation(this.program, 'mask'), 1)
   }
+  /** The largest photo side this GPU can hold as one texture. */
+  get maxTextureSize(): number {
+    return this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE)
+  }
   load(bitmap: ImageBitmap) {
     const gl = this.gl
     if (

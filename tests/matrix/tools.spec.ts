@@ -255,6 +255,22 @@ test.describe('opening photos', () => {
     )
   })
 
+  test('a photo wider than the GPU texture limit still exports', async ({
+    page,
+  }) => {
+    await openFile(page, 'wide-9000.jpg')
+    expect(await shownSize(page)).toEqual([9000, 3000])
+    const shown = await preview(page)
+    const file = await stats(
+      page,
+      await exportFile(page, { format: 'image/jpeg' }),
+      'image/jpeg',
+    )
+    // Full size where the GPU allows it, otherwise its largest texture (8192).
+    expect([9000, 8192]).toContain(file.width)
+    expectSameLook(file, shown)
+  })
+
   test('a narrow panorama exports at the social size', async ({ page }) => {
     await openFile(page, 'panorama.jpg')
     expect(await shownSize(page)).toEqual([8000, 1000])
