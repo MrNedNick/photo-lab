@@ -353,6 +353,39 @@ test.describe('tools', () => {
     expect(file.clear).toBeLessThan(0.99)
   })
 
+  test('Compress: a 5 MB photo fits into 500 KB, and into 100 KB by getting smaller', async ({
+    page,
+  }) => {
+    await openFile(page, 'noisy-12mp.jpg')
+    await page.getByRole('tab', { name: 'Compress' }).click()
+    for (const [label, limit] of [
+      ['500 KB', 500 * 1024],
+      ['100 KB', 100 * 1024],
+    ] as const) {
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await page.getByRole('button', { name: 'Compress', exact: true }).click()
+      await expect(page.locator('#compress-result')).toBeVisible({
+        timeout: 120000,
+      })
+      await expect(page.locator('#compress-from')).toContainText('MB')
+      const downloadEvent = page.waitForEvent('download')
+      await page.getByRole('button', { name: 'Download', exact: true }).click()
+      const download = await downloadEvent
+      await download.saveAs(
+        `test-results/exports/${test.info().project.name}-${download.suggestedFilename()}`,
+      )
+      const chunks: Buffer[] = []
+      for await (const chunk of await download.createReadStream())
+        chunks.push(Buffer.from(chunk))
+      const bytes = Buffer.concat(chunks)
+      expect(bytes.length).toBeLessThanOrEqual(limit)
+      // Not a sliver: the quality search keeps as much as the size allows.
+      expect(bytes.length).toBeGreaterThan(limit * 0.5)
+      const file = await stats(page, bytes, 'image/jpeg')
+      expect(file.width / file.height).toBeCloseTo(4 / 3, 1)
+    }
+  })
+
   async function copyOutcome(page: Page) {
     await openSample(page)
     await page.getByRole('button', { name: 'Export', exact: true }).click()

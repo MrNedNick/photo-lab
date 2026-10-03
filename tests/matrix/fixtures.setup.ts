@@ -50,8 +50,9 @@ export default async function setup() {
     'transparent.png',
     'portrait-exif.jpg',
     'panorama.jpg',
+    'noisy-12mp.jpg',
   ]
-  if (files.every((f) => existsSync(FIXTURES + f))) return
+  if (files.every((f) => existsSync(FIXTURES + f))) return makeHeic()
   mkdirSync(FIXTURES, { recursive: true })
   const browser = await chromium.launch()
   const page = await browser.newPage()
@@ -94,6 +95,15 @@ export default async function setup() {
         c.beginPath()
         c.ellipse(w * 0.85, h, w * 0.4, h * 0.3, 0, 0, Math.PI * 2)
         c.fill()
+        if (kind === 'noise') {
+          // Film grain everywhere: a real camera file of about 5 MB.
+          const grain = c.getImageData(0, 0, w, h)
+          for (let i = 0; i < grain.data.length; i += 4)
+            for (let k = 0; k < 3; k++)
+              grain.data[i + k] =
+                grain.data[i + k]! + (Math.random() - 0.5) * 70
+          c.putImageData(grain, 0, 0)
+        }
         if (kind === 'marker') {
           // Red corner: tells where the top-left pixel of the file ends up.
           c.fillStyle = '#ff0000'
@@ -113,6 +123,12 @@ export default async function setup() {
     FIXTURES + 'transparent.png',
     Buffer.from(
       await draw({ w: 1200, h: 900, type: 'image/png', kind: 'cutout' }),
+    ),
+  )
+  writeFileSync(
+    FIXTURES + 'noisy-12mp.jpg',
+    Buffer.from(
+      await draw({ w: 4000, h: 3000, type: 'image/jpeg', kind: 'noise' }),
     ),
   )
   writeFileSync(

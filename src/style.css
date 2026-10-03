@@ -968,3 +968,51 @@ dialog input[type='number'] {
 .more summary:hover {
   color: var(--text);
 }
+
+/* ---------- compress ---------- */
+.compress-sizes {
+  margin: 18px 0 2px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.compress-sizes span {
+  color: var(--muted);
+  font-weight: 600;
+}
+.compress-compare {
+  position: relative;
+  margin: 12px 0 8px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--raised);
+}
+.compress-compare canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.compress-compare::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--at, 50%);
+  border-left: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.compress-compare canvas + canvas {
+  position: absolute;
+  inset: 0;
+}
+#compress-split {
+  width: 100%;
+}
+.compress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0;
+}
+#compress-result .button {
+  margin-top: 8px;
+}

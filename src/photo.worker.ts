@@ -1,9 +1,10 @@
 import { normalizeEdit, type Edit } from './model'
 import { Renderer } from './renderer'
 import { MaskLayer } from './mask'
+import { fitQuality, shrinkFor } from './compress'
 interface Request {
   id: number
-  kind: 'load' | 'export' | 'mask' | 'thumbs'
+  kind: 'load' | 'export' | 'compress' | 'mask' | 'thumbs'
   edits?: Edit[]
   file?: Blob
   mask?: Blob
@@ -11,6 +12,8 @@ interface Request {
   max?: number
   format?: string
   quality?: number
+  /** Compress: the largest file allowed, in bytes. */
+  target?: number
 }
 const worker = self as unknown as {
   onmessage: (event: MessageEvent<Request>) => void
@@ -93,14 +96,67 @@ worker.onmessage = async ({ data }) => {
         kind: 'progress',
         value: 'Rendering your edits…',
       })
-      const size = renderer.render(edit, data.max || Infinity)
+      let size = renderer.render(edit, data.max || Infinity)
+      const type = data.format || 'image/jpeg'
+      if (kind === 'compress') {
+        const target = data.target!
+        const encode = (quality: number) =>
+          canvas!.convertToBlob({ type, quality })
+        let fit = null
+        // Too big even at the lowest quality: make the picture smaller and try again.
+        for (let attempt = 0; attempt < 5 && !fit; attempt++) {
+          worker.postMessage({
+            id,
+            kind: 'progress',
+            value: attempt
+              ? `Making it smaller: ${size.width} × ${size.height} px…`
+              : 'Finding the best quality that fits…',
+          })
+          fit = await fitQuality(encode, target)
+          if (!fit) {
+            const smallest = await encode(0.05)
+            const longest = Math.max(size.width, size.height)
+            size = renderer.render(
+              edit,
+              Math.max(
+                16,
+                Math.floor(longest * shrinkFor(smallest.size, target)),
+              ),
+            )
+          }
+        }
+        if (!fit) throw new Error('This size is too small for the photo.')
+        // The same spot before and after, pixel for pixel, for the comparison.
+        const w = Math.min(size.width, 640),
+          h = Math.min(size.height, 480),
+          x = Math.floor((size.width - w) / 2),
+          y = Math.floor((size.height - h) / 2)
+        const before = await createImageBitmap(canvas, x, y, w, h)
+        const decoded = await createImageBitmap(fit.blob)
+        const after = await createImageBitmap(decoded, x, y, w, h)
+        decoded.close()
+        worker.postMessage(
+          {
+            id,
+            kind,
+            blob: fit.blob,
+            quality: fit.quality,
+            before,
+            after,
+            ...size,
+          },
+          [before, after],
+        )
+        renderer.dispose()
+        return
+      }
       worker.postMessage({
         id,
         kind: 'progress',
         value: 'Encoding your photo…',
       })
       const blob = await canvas.convertToBlob({
-        type: data.format || 'image/jpeg',
+        type,
         quality: data.quality ?? 0.92,
       })
       worker.postMessage({ id, kind, blob, ...size })

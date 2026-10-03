@@ -54,6 +54,7 @@ it('opens straight into the editor with its tools, and switches tools like tabs'
     'Crop',
     'Background',
     'Blur area',
+    'Compress',
   ])
   fireEvent.click(screen.getByRole('tab', { name: 'Background' }))
   expect(

@@ -16,6 +16,7 @@ import { Renderer } from './renderer'
 import { icon } from './icons'
 import { MaskLayer } from './mask'
 import { heicToJpeg, isHeic } from './heic'
+import { formatBytes, TARGETS } from './compress'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!
@@ -89,6 +90,7 @@ const tools = [
   { id: 'crop', label: 'Crop' },
   { id: 'background', label: 'Background' },
   { id: 'retouch', label: 'Blur area' },
+  { id: 'compress', label: 'Compress' },
 ] as const
 type Tool = (typeof tools)[number]['id']
 const swatches = [
@@ -192,6 +194,26 @@ $('#app').innerHTML = `
     <button id="draw-area" class="button primary wide" aria-pressed="false">${icon('retouch')}<span>Draw an area</span></button>
     <ol id="areas" class="areas"></ol>
     <button id="clear-areas" class="text-button" hidden>Remove all areas</button>
+  </section>
+  <section id="panel-compress" role="tabpanel" aria-labelledby="tab-compress" data-panel="compress" hidden>
+    <div class="panel-heading"><h2>Compress</h2></div>
+    <p class="hint">Make the file small enough for an email, a form or a chat. Pick a size — the best quality that still fits is found for you.</p>
+    <h3>Fit into</h3>
+    <div class="chips">${TARGETS.map((t) => `<button class="chip" data-target="${t.bytes}" aria-pressed="${t.label === '500 KB'}">${t.label}</button>`).join('')}<button class="chip" data-target="custom" aria-pressed="false">Custom</button></div>
+    <div id="compress-custom" class="adjustment" hidden><label for="compress-kb">Size in KB</label><span></span><input id="compress-kb" type="number" min="10" step="10" value="300" inputmode="numeric"></div>
+    <h3>Format</h3>
+    <div class="chips"><button class="chip" data-cformat="image/jpeg" aria-pressed="true">JPEG</button><button class="chip" data-cformat="image/webp" aria-pressed="false" hidden>WebP</button></div>
+    <p id="compress-note" class="hint"></p>
+    <button id="compress-run" class="button primary wide">${icon('compress')}<span>Compress</span></button>
+    <p id="compress-status" class="hint" role="status"></p>
+    <div id="compress-result" hidden>
+      <p class="compress-sizes"><span id="compress-from"></span> → <strong id="compress-to"></strong></p>
+      <p id="compress-detail" class="hint"></p>
+      <div class="compress-compare"><canvas id="compress-before" aria-hidden="true"></canvas><canvas id="compress-after" aria-hidden="true"></canvas></div>
+      <input id="compress-split" type="range" min="0" max="100" value="50" aria-label="Slide between before and after compression">
+      <p class="hint compress-labels"><span>Before</span><span>After · actual pixels</span></p>
+      <button id="compress-download" class="button primary wide">${icon('download')}<span>Download</span></button>
+    </div>
   </section>
   <button id="forget" class="text-button forget">Clear saved photo</button>
 </fieldset>
@@ -303,6 +325,7 @@ function selectTool(next: Tool, focus = false) {
   for (const panel of $$('[data-panel]'))
     panel.hidden = panel.dataset.panel !== next
   if (next === 'crop' && photo) beginCrop()
+  if (next === 'compress') compressNote()
 }
 for (const tab of $$('[data-tool]')) {
   tab.onclick = () => selectTool(tab.dataset.tool as Tool)
@@ -454,6 +477,7 @@ function persist() {
     })
 }
 function commit() {
+  staleCompression()
   history.push(edit)
   syncControls()
   render()
@@ -1140,6 +1164,8 @@ if ('OffscreenCanvas' in window)
     // Browsers that cannot encode a format quietly return PNG instead.
     void probe.convertToBlob({ type }).then(
       (blob) => {
+        if (blob.type === type && type === 'image/webp')
+          $('[data-cformat="image/webp"]').hidden = false
         if (blob.type === type)
           $('#format').insertAdjacentHTML(
             'beforeend',
@@ -1244,51 +1270,65 @@ $('#cancel-export').onclick = () => {
   $('#export-status').textContent = 'Export cancelled. Your edits are safe.'
 }
 $<HTMLDialogElement>('#export-dialog').onclose = cancelExport
-function renderFile(format: string) {
+interface Rendered {
+  blob: Blob
+  width: number
+  height: number
+  /** Compress only: the quality found and the same spot before and after. */
+  quality?: number
+  before?: ImageBitmap
+  after?: ImageBitmap
+}
+function renderFile(
+  format: string,
+  {
+    target,
+    status = '#export-status',
+  }: { target?: number; status?: string } = {},
+) {
   cancelExport()
   exportBusy(true)
-  $('#export-status').textContent = 'Preparing export…'
+  $(status).textContent = 'Preparing export…'
+  const kind = target ? 'compress' : 'export'
   const started = performance.now()
-  return new Promise<{ blob: Blob; width: number; height: number }>(
-    (resolve, reject) => {
-      exportReject = reject
-      exportWorker = new Worker(new URL('./photo.worker.ts', import.meta.url), {
-        type: 'module',
-      })
-      exportWorker.onmessage = ({ data }) => {
-        if (data.kind === 'progress')
-          $('#export-status').textContent = data.value
-        else if (data.kind === 'error') {
-          exportReject = undefined
-          cancelExport()
-          reject(new Error(data.message))
-        } else if (data.kind === 'export') {
-          performance.measure('photo-export', {
-            start: started,
-            end: performance.now(),
-          })
-          exportReject = undefined
-          cancelExport()
-          resolve(data)
-        }
-      }
-      exportWorker.onerror = () => {
+  return new Promise<Rendered>((resolve, reject) => {
+    exportReject = reject
+    exportWorker = new Worker(new URL('./photo.worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    exportWorker.onmessage = ({ data }) => {
+      if (data.kind === 'progress') $(status).textContent = data.value
+      else if (data.kind === 'error') {
         exportReject = undefined
         cancelExport()
-        reject(new Error('Export failed. Try a smaller output size.'))
+        reject(new Error(data.message))
+      } else if (data.kind === kind) {
+        performance.measure('photo-export', {
+          start: started,
+          end: performance.now(),
+        })
+        exportReject = undefined
+        cancelExport()
+        resolve(data)
       }
-      exportWorker.postMessage({
-        id: 1,
-        kind: 'export',
-        file: photo,
-        mask: edit.background !== 'keep' ? mask : undefined,
-        edit: structuredClone(edit),
-        format,
-        quality: +$<HTMLInputElement>('#quality').value / 100,
-        max: exportMax(),
-      })
-    },
-  )
+    }
+    exportWorker.onerror = () => {
+      exportReject = undefined
+      cancelExport()
+      reject(new Error('Export failed. Try a smaller output size.'))
+    }
+    exportWorker.postMessage({
+      id: 1,
+      kind,
+      target,
+      file: photo,
+      mask: edit.background !== 'keep' ? mask : undefined,
+      edit: structuredClone(edit),
+      format,
+      quality: +$<HTMLInputElement>('#quality').value / 100,
+      max: exportMax(),
+    })
+  })
 }
 const extensions: Record<string, string> = {
   'image/png': 'png',
@@ -1384,6 +1424,92 @@ $('#share').onclick = () => {
           'Sharing did not start. Use Download instead.'
     }
   }, failed)
+}
+
+/* ---------- compress ---------- */
+let compressTarget = 500 * 1024,
+  compressFormat = 'image/jpeg',
+  compressUrl = ''
+function compressTargetBytes() {
+  if (compressTarget > 0) return compressTarget
+  return Math.max(10, +$<HTMLInputElement>('#compress-kb').value || 300) * 1024
+}
+function compressNote() {
+  const transparent = !!mask && edit.background === 'transparent'
+  $('#compress-note').textContent =
+    compressFormat === 'image/jpeg' && transparent
+      ? 'JPEG has no transparency: the cut-out background turns black. WebP keeps it.'
+      : compressFormat === 'image/jpeg' && photo?.type === 'image/png'
+        ? 'PNG photos shrink best as WebP or JPEG; WebP also keeps transparency.'
+        : ''
+}
+function staleCompression() {
+  $('#compress-result').hidden = true
+  $('#compress-status').textContent = ''
+}
+for (const chip of $$<HTMLButtonElement>('[data-target]'))
+  chip.onclick = () => {
+    for (const c of $$('[data-target]'))
+      c.setAttribute('aria-pressed', String(c === chip))
+    compressTarget =
+      chip.dataset.target === 'custom' ? 0 : +chip.dataset.target!
+    $('#compress-custom').hidden = compressTarget > 0
+    staleCompression()
+  }
+$('#compress-kb').oninput = staleCompression
+for (const chip of $$<HTMLButtonElement>('[data-cformat]'))
+  chip.onclick = () => {
+    for (const c of $$('[data-cformat]'))
+      c.setAttribute('aria-pressed', String(c === chip))
+    compressFormat = chip.dataset.cformat!
+    compressNote()
+    staleCompression()
+  }
+function drawBitmap(target: HTMLCanvasElement, bitmap: ImageBitmap) {
+  target.width = bitmap.width
+  target.height = bitmap.height
+  target.getContext('2d')!.drawImage(bitmap, 0, 0)
+  bitmap.close()
+}
+$('#compress-split').oninput = () => {
+  const at = +$<HTMLInputElement>('#compress-split').value
+  $('#compress-after').style.clipPath = `inset(0 0 0 ${at}%)`
+  $('.compress-compare').style.setProperty('--at', `${at}%`)
+}
+$('#compress-run').onclick = () => {
+  if (!photo) return
+  const target = compressTargetBytes(),
+    format = compressFormat
+  $('#compress-result').hidden = true
+  $<HTMLButtonElement>('#compress-run').disabled = true
+  renderFile(format, { target, status: '#compress-status' }).then(
+    (result) => {
+      $<HTMLButtonElement>('#compress-run').disabled = false
+      if (compressUrl) URL.revokeObjectURL(compressUrl)
+      compressUrl = URL.createObjectURL(result.blob)
+      $('#compress-from').textContent = formatBytes(photo!.size)
+      $('#compress-to').textContent = formatBytes(result.blob.size)
+      $('#compress-detail').textContent =
+        `${format === 'image/webp' ? 'WebP' : 'JPEG'} · quality ${Math.round(result.quality! * 100)} % · ${result.width.toLocaleString('en-US')} × ${result.height.toLocaleString('en-US')} px`
+      drawBitmap($<HTMLCanvasElement>('#compress-before'), result.before!)
+      drawBitmap($<HTMLCanvasElement>('#compress-after'), result.after!)
+      $('#compress-split').dispatchEvent(new Event('input'))
+      $('#compress-status').textContent = `Fits into ${formatBytes(target)}.`
+      $('#compress-result').hidden = false
+    },
+    (error: Error) => {
+      $<HTMLButtonElement>('#compress-run').disabled = false
+      if (error.message !== 'cancelled')
+        $('#compress-status').textContent = error.message
+    },
+  )
+}
+$('#compress-download').onclick = () => {
+  if (!compressUrl) return
+  const link = document.createElement('a')
+  link.href = compressUrl
+  link.download = `${name.replace(/\.[^.]+$/, '')}-${formatBytes(compressTargetBytes()).replace(' ', '')}.${compressFormat === 'image/webp' ? 'webp' : 'jpg'}`
+  link.click()
 }
 
 /* ---------- workspace ---------- */
