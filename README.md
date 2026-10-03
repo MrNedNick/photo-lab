@@ -34,7 +34,7 @@ TypeScript and Vite, no UI framework. The browser already has the specialist par
 | ------------------------------------------------------ | --------------------------------------------------------------- |
 | Controls, history and save coordination                | Main thread                                                     |
 | Colors, geometry, horizon, background and hidden areas | WebGL2, one fragment-shader pass                                |
-| Image decode, look previews and RGB histogram          | One long-lived worker with its own WebGL2 context               |
+| Image decode and look previews                         | One long-lived worker with its own WebGL2 context               |
 | Background cut-out                                     | Worker running ONNX Runtime Web (WebAssembly), loaded on demand |
 | Full-resolution render and PNG/JPEG/WebP encoding      | Dedicated export worker with `OffscreenCanvas`, cancellable     |
 | Original photo, cut-out mask and edit history          | IndexedDB in this browser                                       |

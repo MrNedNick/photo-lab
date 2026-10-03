@@ -21,7 +21,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
   matrix:
-    runs-on: ubuntu-latest
+    # Firefox and WebKit get WebGL2 only with a GPU; Linux runners have none.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,5 +30,5 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npx playwright install chromium firefox webkit
       - run: npm run test:matrix

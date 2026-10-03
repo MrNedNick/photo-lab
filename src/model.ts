@@ -167,12 +167,3 @@ export class History {
     return this.current
   }
 }
-export function histogram(pixels: Uint8Array) {
-  const bins = Array.from({ length: 3 }, () => new Array<number>(256).fill(0))
-  for (let i = 0; i < pixels.length; i += 4) {
-    if (!pixels[i + 3]) continue
-    for (let channel = 0; channel < 3; channel++)
-      bins[channel]![pixels[i + channel]!]!++
-  }
-  return bins
-}

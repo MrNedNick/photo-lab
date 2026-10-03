@@ -22,11 +22,26 @@ const $$ = <T extends HTMLElement = HTMLElement>(selector: string) => [
   ...document.querySelectorAll<T>(selector),
 ]
 const adjustments = [
-  { key: 'exposure', label: 'Exposure', min: -2, max: 2, step: 0.01 },
+  { key: 'exposure', label: 'Brightness', min: -2, max: 2, step: 0.01 },
   { key: 'contrast', label: 'Contrast', min: -1, max: 1, step: 0.01 },
   { key: 'saturation', label: 'Saturation', min: -1, max: 1, step: 0.01 },
-  { key: 'temperature', label: 'Warmth', min: -1, max: 1, step: 0.01 },
-  { key: 'vignette', label: 'Vignette', min: 0, max: 1, step: 0.01 },
+  // Less common: tucked under "More".
+  {
+    key: 'temperature',
+    label: 'Warmth',
+    min: -1,
+    max: 1,
+    step: 0.01,
+    more: true,
+  },
+  {
+    key: 'vignette',
+    label: 'Vignette',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    more: true,
+  },
 ] as const
 type AdjustKey = (typeof adjustments)[number]['key']
 const looks: {
@@ -84,6 +99,9 @@ const swatches = [
   '#f4a7b9',
 ]
 
+const slider = (a: (typeof adjustments)[number]) =>
+  `<div class="adjustment"><label for="${a.key}">${a.label}</label><output for="${a.key}" id="${a.key}-value">0</output><input id="${a.key}" type="range" min="${a.min}" max="${a.max}" step="${a.step}" value="0"></div>`
+
 $('#app').innerHTML = `
 <div class="app">
 <header class="topbar">
@@ -130,9 +148,14 @@ $('#app').innerHTML = `
     <h3>Looks</h3>
     <div class="looks">${looks.map((l) => `<button class="look" data-look="${l.id}" aria-label="${l.label}"><canvas width="96" height="72" aria-hidden="true"></canvas><span>${l.label}</span></button>`).join('')}</div>
     <h3>Light &amp; color</h3>
-    ${adjustments.map((a) => `<div class="adjustment"><label for="${a.key}">${a.label}</label><output for="${a.key}" id="${a.key}-value">0</output><input id="${a.key}" type="range" min="${a.min}" max="${a.max}" step="${a.step}" value="0"></div>`).join('')}
-    <h3>Histogram</h3>
-    <canvas id="histogram" width="256" height="64" role="img" aria-label="Red, green and blue tonal distribution"></canvas>
+    ${adjustments
+      .filter((a) => !('more' in a))
+      .map(slider)
+      .join('')}
+    <details class="more"><summary>More</summary>${adjustments
+      .filter((a) => 'more' in a)
+      .map(slider)
+      .join('')}</details>
   </section>
   <section id="panel-crop" role="tabpanel" aria-labelledby="tab-crop" data-panel="crop" hidden>
     <div class="panel-heading"><h2>Crop &amp; rotate</h2></div>
@@ -142,7 +165,7 @@ $('#app').innerHTML = `
     <p class="hint">Drag the frame or its corners. Arrow keys move it.</p>
     <h3>Straighten</h3>
     <div class="adjustment"><label for="straighten">Horizon</label><output id="straighten-value" for="straighten">0°</output><input id="straighten" type="range" min="-45" max="45" step="0.1" value="0"></div>
-    <div class="composition"><button id="rotate" class="button" aria-label="Rotate clockwise">${icon('rotate')}<span>Rotate</span></button><button id="flip-x" class="button" aria-label="Flip horizontally">${icon('flipX')}<span>Flip</span></button><button id="flip-y" class="button" aria-label="Flip vertically">${icon('flipY')}<span>Flip</span></button></div>
+    <div class="composition"><button id="rotate" class="button" aria-label="Rotate clockwise">${icon('rotate')}<span>Rotate</span></button><button id="flip-x" class="button" aria-label="Flip horizontally">${icon('flipX')}<span>Mirror</span></button></div>
   </section>
   <section id="panel-background" role="tabpanel" aria-labelledby="tab-background" data-panel="background" hidden>
     <div class="panel-heading"><h2>Background</h2></div>
@@ -206,9 +229,7 @@ let renderer: Renderer | undefined,
   segmentWorker: Worker | undefined,
   exportReject: ((reason: Error) => void) | undefined
 let loadId = 0,
-  histogramId = 0,
   frame = 0,
-  histTimer = 0,
   thumbTimer = 0,
   thumbId = 0
 let tool: Tool = 'adjust'
@@ -303,10 +324,10 @@ function outputAspect() {
 function syncControls() {
   for (const a of adjustments) {
     $<HTMLInputElement>(`#${a.key}`).value = String(edit[a.key])
-    $(`#${a.key}-value`).textContent =
-      a.key === 'exposure'
-        ? `${edit[a.key].toFixed(2)} EV`
-        : String(Math.round(edit[a.key] * 100))
+    // Every slider reads on the same -100…100 scale, whatever it maps to.
+    $(`#${a.key}-value`).textContent = String(
+      Math.round((edit[a.key] / a.max) * 100),
+    )
   }
   $<HTMLInputElement>('#straighten').value = String(edit.straighten)
   $('#straighten-value').textContent = `${edit.straighten.toFixed(1)}°`
@@ -376,11 +397,6 @@ function paint() {
   renderer.render(shown, previewEdge(), split)
   fitCanvas()
   syncControls()
-  if (!histTimer)
-    histTimer = window.setTimeout(() => {
-      histTimer = 0
-      worker?.postMessage({ kind: 'histogram', id: ++histogramId, edit: shown })
-    }, 100)
 }
 function render() {
   cancelAnimationFrame(frame)
@@ -449,25 +465,6 @@ function setBusy(busy: boolean, text = 'Opening your photo…') {
   $<HTMLFieldSetElement>('#edit-tools').disabled = busy || !photo
   $<HTMLButtonElement>('#export').disabled = busy || !photo
   $<HTMLButtonElement>('#compare').disabled = busy || !photo
-}
-function drawHistogram(bins: number[][]) {
-  const target = $<HTMLCanvasElement>('#histogram'),
-    ctx = target.getContext('2d')!
-  ctx.clearRect(0, 0, 256, 64)
-  const peak = Math.max(1, ...bins.flat())
-  const colors = ['#ef7a80', '#a9d98c', '#80b5f1']
-  bins.forEach((values, index) => {
-    ctx.fillStyle = colors[index]!
-    ctx.globalAlpha = 0.55
-    ctx.beginPath()
-    ctx.moveTo(0, 64)
-    values.forEach((count, x) =>
-      ctx.lineTo(x, 64 - Math.sqrt(count / peak) * 60),
-    )
-    ctx.lineTo(256, 64)
-    ctx.closePath()
-    ctx.fill()
-  })
 }
 
 /* ---------- opening ---------- */
@@ -545,9 +542,7 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
         setBusy(false)
         announce(String(error), () => void openPhoto(file, filename, saved))
       }
-    } else if (data.kind === 'histogram' && data.id === histogramId)
-      drawHistogram(data.bins)
-    else if (data.kind === 'thumbs' && data.id === thumbId)
+    } else if (data.kind === 'thumbs' && data.id === thumbId)
       showThumbs(data.images)
     else if (data.kind === 'error') {
       setBusy(false)
@@ -677,11 +672,6 @@ $('#rotate').onclick = () => {
 }
 $('#flip-x').onclick = () => {
   edit.flipX = !edit.flipX
-  endCrop()
-  commit()
-}
-$('#flip-y').onclick = () => {
-  edit.flipY = !edit.flipY
   endCrop()
   commit()
 }
@@ -1400,7 +1390,6 @@ async function clearPhoto(broadcast = true) {
   $('#file-size').textContent = ''
   $('#save-status').textContent = 'Nothing leaves this device'
   $('#bg-status').textContent = ''
-  drawHistogram([[], [], []])
   syncControls()
   if (broadcast) {
     await persistChain

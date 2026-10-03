@@ -16,7 +16,6 @@ const paths = {
   download: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/>',
   rotate: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   flipX: '<path d="M12 3v18"/><path d="M8 7 3 12l5 5zM16 7l5 5-5 5z"/>',
-  flipY: '<path d="M3 12h18"/><path d="M7 8l5-5 5 5zM7 16l5 5 5-5z"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   image:
     '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',

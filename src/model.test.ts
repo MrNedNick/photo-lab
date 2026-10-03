@@ -4,7 +4,6 @@ import {
   dimensions,
   freshEdit,
   History,
-  histogram,
   normalizeEdit,
   sourcePoint,
   sourceRect,
@@ -76,15 +75,6 @@ describe('output geometry and analysis', () => {
       expect(crop.x).toBeGreaterThanOrEqual(0)
       expect(crop.y).toBeGreaterThanOrEqual(0)
     }
-  })
-  it('counts RGB independently and ignores fully transparent pixels', () => {
-    const bins = histogram(
-      new Uint8Array([255, 0, 10, 255, 255, 50, 10, 255, 2, 2, 2, 0]),
-    )
-    expect(bins[0]![255]).toBe(2)
-    expect(bins[1]![50]).toBe(1)
-    expect(bins[2]![10]).toBe(2)
-    expect(bins[0]![2]).toBe(0)
   })
 })
 describe('horizon, redactions and older saves', () => {

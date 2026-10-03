@@ -1,9 +1,9 @@
-import { histogram, normalizeEdit, type Edit } from './model'
+import { normalizeEdit, type Edit } from './model'
 import { Renderer } from './renderer'
 import { MaskLayer } from './mask'
 interface Request {
   id: number
-  kind: 'load' | 'histogram' | 'export' | 'mask' | 'thumbs'
+  kind: 'load' | 'export' | 'mask' | 'thumbs'
   edits?: Edit[]
   file?: Blob
   mask?: Blob
@@ -46,12 +46,6 @@ worker.onmessage = async ({ data }) => {
       worker.postMessage({ id, kind, bitmap: preview, width, height }, [
         preview,
       ])
-    } else if (kind === 'histogram') {
-      if (!renderer) return
-      const edit = normalizeEdit(data.edit!)
-      layer.apply(renderer, edit.maskStrokes)
-      renderer.render(edit, 256)
-      worker.postMessage({ id, kind, bins: histogram(renderer.pixels()) })
     } else if (kind === 'mask') {
       if (!renderer) return
       layer.setBase(data.mask ? await createImageBitmap(data.mask) : null)
