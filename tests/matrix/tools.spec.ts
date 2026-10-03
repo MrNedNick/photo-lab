@@ -445,6 +445,43 @@ test.describe('tools', () => {
     ])
   })
 
+  test('Task addresses: each job opens its own tool', async ({ page }) => {
+    await page.goto('./compress/')
+    await expect(
+      page.getByRole('heading', { name: 'Compress a photo' }),
+    ).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Compress' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(page).toHaveTitle(/Compress an image/)
+
+    await page.goto('./resize/')
+    await page.locator('#file').setInputFiles(FIXTURES + 'portrait-exif.jpg')
+    await expect(page.locator('#export-dialog')).toBeVisible()
+    await expect(
+      page.locator('#export-dialog').getByLabel('Size', { exact: true }),
+    ).toHaveValue('1080')
+    await page.getByRole('button', { name: 'Close export dialog' }).click()
+
+    // From the start screen: a tile picks the job, then asks for the photo.
+    await page.getByRole('button', { name: 'Clear saved photo' }).click()
+    // Storage is cleared asynchronously; leave only once it says so.
+    await expect(page.locator('#notice-text')).toContainText('cleared')
+    await page.goto('./')
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('link', { name: 'Remove background' }).click()
+    await (await chooser).setFiles(FIXTURES + 'portrait-exif.jpg')
+    await expect(page).toHaveURL(/\/remove-background\/$/)
+    await expect(page.getByRole('tab', { name: 'Background' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(
+      page.getByRole('button', { name: 'Remove background' }),
+    ).toBeVisible()
+  })
+
   async function copyOutcome(page: Page) {
     await openSample(page)
     await page.getByRole('button', { name: 'Export', exact: true }).click()

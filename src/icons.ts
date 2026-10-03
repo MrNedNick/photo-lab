@@ -11,6 +11,9 @@ const paths = {
   background:
     '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/>',
   compress: '<path d="M4 14h6v6M20 10h-6V4"/><path d="M14 10l7-7M3 21l7-7"/>',
+  resize:
+    '<rect x="3" y="9" width="12" height="12" rx="2"/><path d="M14 3h7v7M21 3l-8 8"/>',
+  convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   retouch:
     '<circle cx="12" cy="12" r="9" stroke-dasharray="2 3"/><circle cx="12" cy="12" r="4"/>',
   open: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v5h16v-5"/>',

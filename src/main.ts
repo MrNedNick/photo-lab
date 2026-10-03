@@ -18,6 +18,7 @@ import { MaskLayer } from './mask'
 import { heicToJpeg, isHeic } from './heic'
 import { formatBytes, TARGETS } from './compress'
 import { uniqueNames, zip, type ZipEntry } from './zip'
+import { TASKS, type Task } from './tasks'
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!
@@ -107,9 +108,9 @@ const slider = (a: (typeof adjustments)[number]) =>
   `<div class="adjustment"><label for="${a.key}">${a.label}</label><output for="${a.key}" id="${a.key}-value">0</output><input id="${a.key}" type="range" min="${a.min}" max="${a.max}" step="${a.step}" value="0"></div>`
 
 $('#app').innerHTML = `
-<div class="app">
+<div class="app" data-empty>
 <header class="topbar">
-  <a class="brand" href="./" aria-label="Photo Lab home"><span class="brand-mark" aria-hidden="true"></span><span>Photo Lab</span></a>
+  <a class="brand" href="${import.meta.env.BASE_URL}" aria-label="Photo Lab home"><span class="brand-mark" aria-hidden="true"></span><span>Photo Lab</span></a>
   <span class="badge" title="Photo Lab is free, needs no account and never uploads your photos">Free · No sign-up<span class="badge-long"> · Stays on your device</span></span>
   <div class="file-info"><span id="filename">No photo yet</span><span id="file-size" class="muted"></span></div>
   <div class="top-actions">
@@ -129,9 +130,10 @@ $('#app').innerHTML = `
   <div id="stage" class="stage">
     <div id="empty" class="empty">
       <div class="empty-icon">${icon('image')}</div>
-      <h1>Free photo editor</h1>
+      <h1 id="empty-title">Free photo editor</h1>
       <p>Drop a photo here, paste it with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>V</kbd>, or pick one from your device.</p>
       <div class="empty-actions"><button id="choose" class="button primary large">${icon('open')}<span>Open a photo</span></button><button id="sample" class="button large">Try a sample image</button></div>
+      <nav class="tasks" aria-label="What do you want to do?">${TASKS.map((t) => `<a class="task" href="${import.meta.env.BASE_URL}${t.slug}/" data-task="${t.slug}">${icon(({ background: 'background', compress: 'compress', crop: 'crop', retouch: 'retouch', adjust: t.action === 'resize' ? 'resize' : 'convert' } as const)[t.tool])}<span>${t.label}</span></a>`).join('')}</nav>
       <p class="batch-hint">Many photos? Pick or drop up to 50 at once — resize, convert and compress them into one ZIP.</p>
       <p class="formats">Crop, adjust, remove the background, blur faces and plates. JPEG, PNG, WebP, AVIF and iPhone HEIC up to 50 MP. Your photo never leaves this device.</p>
     </div>
@@ -580,6 +582,9 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
           `${(file.size / 1024 / 1024).toFixed(1)} MB`
         $('#empty').hidden = true
         $('#canvas-wrap').hidden = false
+        // Plain attribute rather than CSS :has(): Chromium does not always
+        // restyle :has() when a descendant's hidden attribute flips.
+        delete $('.app').dataset.empty
         $('#notice').hidden = true
         $('#bg-status').textContent = ''
         setBusy(false)
@@ -588,8 +593,10 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
         syncControls()
         render()
         drawThumbs()
-        if (!saved) persist()
-        else $('#save-status').textContent = 'Saved on this device'
+        if (!saved) {
+          persist()
+          runPendingAction()
+        } else $('#save-status').textContent = 'Saved on this device'
         if (tool === 'crop') beginCrop()
         performance.measure('photo-open', {
           start: started,
@@ -1730,6 +1737,7 @@ async function clearPhoto(broadcast = true) {
   comparing = false
   setBusy(false)
   $('#canvas-wrap').hidden = true
+  $('.app').dataset.empty = ''
   $('#empty').hidden = false
   $('#filename').textContent = 'No photo yet'
   $('#file-size').textContent = ''
@@ -1766,6 +1774,54 @@ canvas.addEventListener('webglcontextlost', (e) => {
       })
   })
 })
+/* ---------- tasks: one address per job ---------- */
+const BASE_URL = import.meta.env.BASE_URL
+const HOME_TITLE = document.title
+const taskFromPath = () =>
+  TASKS.find((t) => location.pathname.startsWith(`${BASE_URL}${t.slug}`))
+let task: Task | undefined = taskFromPath(),
+  pendingAction = task?.action
+function applyTask() {
+  $('#empty-title').textContent = task?.heading ?? 'Free photo editor'
+  document.title = task?.title ?? HOME_TITLE
+  for (const tile of $$('[data-task]'))
+    if (tile.dataset.task === task?.slug)
+      tile.setAttribute('aria-current', 'page')
+    else tile.removeAttribute('aria-current')
+  if (task) selectTool(task.tool)
+}
+for (const tile of $$<HTMLAnchorElement>('[data-task]'))
+  tile.onclick = (e) => {
+    e.preventDefault()
+    window.history.pushState(null, '', tile.href)
+    task = taskFromPath()
+    pendingAction = task?.action
+    applyTask()
+    choose()
+  }
+window.addEventListener('popstate', () => {
+  task = taskFromPath()
+  applyTask()
+})
+/** /resize and /convert end in the export dialog, already set up for the job. */
+function runPendingAction() {
+  const action = pendingAction
+  pendingAction = undefined
+  if (!action || !photo) return
+  $('#export').click()
+  if (action === 'resize') {
+    $<HTMLSelectElement>('#export-size').value = '1080'
+    $('#export-size').dispatchEvent(new Event('change'))
+  } else {
+    const format = $<HTMLSelectElement>('#format')
+    format.value = [...format.options].some((o) => o.value === 'image/webp')
+      ? 'image/webp'
+      : 'image/jpeg'
+    format.dispatchEvent(new Event('change'))
+  }
+}
+applyTask()
+
 async function restore() {
   try {
     const saved = await readProject()
