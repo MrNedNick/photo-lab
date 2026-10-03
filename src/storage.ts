@@ -7,6 +7,8 @@ export interface Project {
   updated: number
   /** Background cut-out mask, present once the background was removed. */
   mask?: Blob
+  /** How the cut-out was cleaned up: subject kind and edge softness (0…1). */
+  cutout?: { mode: 'person' | 'object'; soft: number }
 }
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

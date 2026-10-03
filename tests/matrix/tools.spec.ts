@@ -14,6 +14,8 @@ interface Stats {
   mean: [number, number, number]
   /** Share of fully transparent pixels. */
   clear: number
+  /** Share of half-transparent pixels: the width of soft edges. */
+  partial: number
   /** RGBA at the requested relative points. */
   samples: number[][]
 }
@@ -43,12 +45,14 @@ async function stats(
       const data = ctx.getImageData(0, 0, w, h).data
       const sum = [0, 0, 0]
       let opaque = 0,
-        clear = 0
+        clear = 0,
+        partial = 0
       for (let i = 0; i < data.length; i += 4) {
         if (data[i + 3] === 0) {
           clear++
           continue
         }
+        if (data[i + 3]! < 255) partial++
         opaque++
         sum[0] += data[i]!
         sum[1] += data[i + 1]!
@@ -70,6 +74,7 @@ async function stats(
           number,
         ],
         clear: clear / (data.length / 4),
+        partial: partial / (data.length / 4),
         samples,
       }
     },
@@ -357,6 +362,47 @@ test.describe('tools', () => {
     )
     expect(file.clear).toBeGreaterThan(0.1)
     expect(file.clear).toBeLessThan(0.99)
+  })
+
+  test('Background: object mode and a soft edge change the cut-out', async ({
+    page,
+  }) => {
+    await openSample(page)
+    await page.getByRole('tab', { name: 'Background' }).click()
+    await page.getByRole('button', { name: 'Remove background' }).click()
+    await expect(page.locator('#bg-status')).toContainText(
+      'Background removed',
+      {
+        timeout: 120000,
+      },
+    )
+    await page.getByRole('button', { name: 'Object', exact: true }).click()
+    await expect(page.locator('#bg-status')).toHaveText('Cut-out updated.')
+    const firm = await stats(
+      page,
+      await exportFile(page, { format: 'image/png', size: '0.5' }),
+      'image/png',
+    )
+    await page.locator('#cutout-soft').fill('100')
+    await page.locator('#cutout-soft').dispatchEvent('change')
+    await expect(page.locator('#bg-status')).toHaveText('Cut-out updated.')
+    await expect(page.locator('#save-status')).toHaveText(
+      'Saved on this device',
+    )
+    const soft = await stats(
+      page,
+      await exportFile(page, { format: 'image/png', size: '0.5' }),
+      'image/png',
+    )
+    expect(soft.partial).toBeGreaterThan(firm.partial * 2)
+    // The choice is kept with the photo.
+    await page.reload()
+    await expect(page.locator('#export')).toBeEnabled()
+    await page.getByRole('tab', { name: 'Background' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Object', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('#cutout-soft')).toHaveValue('100')
   })
 
   test('Compress: a 5 MB photo fits into 500 KB, and into 100 KB by getting smaller', async ({

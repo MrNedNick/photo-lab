@@ -183,6 +183,10 @@ $('#app').innerHTML = `
       <h3>Behind the subject</h3>
       <div class="chips">${(['keep', 'transparent', 'color', 'blur'] as const).map((m) => `<button class="chip" data-bg="${m}" aria-pressed="false">${{ keep: 'Original', transparent: 'Transparent', color: 'Color', blur: 'Blur' }[m]}</button>`).join('')}</div>
       <div id="bg-colors" class="swatches" hidden>${swatches.map((c) => `<button class="swatch" data-color="${c}" style="--swatch:${c}" aria-label="Background ${c}"></button>`).join('')}<label class="swatch custom" aria-label="Pick any color"><input id="bg-color" type="color" value="#ffffff"></label></div>
+      <h3>Subject</h3>
+      <div class="chips"><button class="chip" data-cutout="person" aria-pressed="true">Person</button><button class="chip" data-cutout="object" aria-pressed="false">Object</button></div>
+      <p class="hint">Person keeps hair soft. Object gives a firm edge and fills gaps — for products, cars, food.</p>
+      <div class="adjustment"><label for="cutout-soft">Soft edge</label><output id="cutout-soft-value" for="cutout-soft">0</output><input id="cutout-soft" type="range" min="0" max="100" step="5" value="0"></div>
       <h3>Refine the edge</h3>
       <p class="hint">Keep paints back what the cut-out missed. Erase removes what it grabbed by mistake.</p>
       <div class="chips"><button class="chip" data-brush="keep" aria-pressed="false">Keep</button><button class="chip" data-brush="erase" aria-pressed="true">Erase</button></div>
@@ -479,6 +483,7 @@ function persist() {
     index: history.index,
     updated: Date.now(),
     mask,
+    cutout: { mode: cutoutMode, soft: cutoutSoft },
   }
   $('#save-status').textContent = 'Saving on this device…'
   persistChain = persistChain
@@ -569,6 +574,9 @@ async function openPhoto(file: Blob, filename: string, saved?: Project) {
         worker!.postMessage({ kind: 'mask', id, mask: saved?.mask ?? null })
         photo = file
         mask = saved?.mask
+        cutoutMode = saved?.cutout?.mode ?? 'person'
+        cutoutSoft = saved?.cutout?.soft ?? 0
+        showCutoutSettings()
         name = filename
         width = data.width
         height = data.height
@@ -922,7 +930,72 @@ function removeBackground() {
       'The background could not be removed. Check your connection and try again.',
     )
   }
-  segmentWorker.postMessage({ id, file: photo, max: 2048 })
+  segmentWorker.postMessage({
+    id,
+    file: photo,
+    max: 2048,
+    mode: cutoutMode,
+    soft: cutoutSoft,
+  })
+}
+
+/* Subject kind and edge softness: the model's answer is reused, only the
+ * clean-up runs again. */
+let cutoutMode: 'person' | 'object' = 'person',
+  cutoutSoft = 0
+function showCutoutSettings() {
+  for (const chip of $$('[data-cutout]'))
+    chip.setAttribute(
+      'aria-pressed',
+      String(chip.dataset.cutout === cutoutMode),
+    )
+  $<HTMLInputElement>('#cutout-soft').value = String(
+    Math.round(cutoutSoft * 100),
+  )
+  $('#cutout-soft-value').textContent = String(Math.round(cutoutSoft * 100))
+}
+function refineCutout() {
+  if (!photo || !mask) return
+  const id = loadId,
+    source = photo
+  segmentWorker ||= new Worker(
+    new URL('./segment.worker.ts', import.meta.url),
+    { type: 'module' },
+  )
+  $('#bg-status').textContent = 'Updating the cut-out…'
+  segmentWorker.onmessage = async ({ data }) => {
+    if (id !== loadId || source !== photo || data.kind === 'progress') return
+    if (data.kind === 'error') {
+      $('#bg-status').textContent = data.message
+      return
+    }
+    maskLayer.setBase(await createImageBitmap(data.blob))
+    mask = data.blob
+    worker?.postMessage({ kind: 'mask', id, mask })
+    $('#bg-status').textContent = 'Cut-out updated.'
+    render()
+    persist()
+  }
+  segmentWorker.postMessage({
+    id,
+    file: photo,
+    max: 2048,
+    mode: cutoutMode,
+    soft: cutoutSoft,
+  })
+}
+for (const chip of $$<HTMLButtonElement>('[data-cutout]'))
+  chip.onclick = () => {
+    cutoutMode = chip.dataset.cutout as 'person' | 'object'
+    showCutoutSettings()
+    refineCutout()
+  }
+$('#cutout-soft').oninput = () =>
+  ($('#cutout-soft-value').textContent =
+    $<HTMLInputElement>('#cutout-soft').value)
+$('#cutout-soft').onchange = () => {
+  cutoutSoft = +$<HTMLInputElement>('#cutout-soft').value / 100
+  refineCutout()
 }
 $('#remove-bg').onclick = removeBackground
 for (const chip of $$<HTMLButtonElement>('[data-bg]'))
