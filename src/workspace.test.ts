@@ -45,9 +45,7 @@ it('rejects unsupported files with a useful message and keeps the workspace usab
   expect(screen.getByRole('button', { name: 'Open a photo' })).toBeTruthy()
 })
 it('opens straight into the editor with its tools, and switches tools like tabs', () => {
-  expect(
-    screen.getByRole('heading', { name: 'Free photo editor' }),
-  ).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Free image tools' })).toBeTruthy()
   const tabs = screen.getAllByRole('tab')
   expect(tabs.map((t) => t.textContent)).toEqual([
     'Adjust',

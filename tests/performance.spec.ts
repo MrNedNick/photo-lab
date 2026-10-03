@@ -100,9 +100,21 @@ test('12 MP photo remains editable during export and supports cancellation', asy
 })
 
 test('capture the current editor for documentation', async ({ page }) => {
-  test.skip(!process.env.RECORD_METRICS, 'Documentation capture only')
+  test.skip(
+    !process.env.RECORD_METRICS && !process.env.RECORD_DOCS,
+    'Documentation capture only',
+  )
   await page.goto('./')
+  await expect(page.getByRole('link', { name: 'Compress' })).toBeVisible()
+  await page.screenshot({ path: 'docs/tools.png' })
   await page.getByRole('button', { name: 'Try a sample image' }).click()
   await expect(page.locator('#export')).toBeEnabled()
+  await page.getByRole('tab', { name: 'Background' }).click()
+  await page.getByRole('button', { name: 'Remove background' }).click()
+  await expect(page.locator('#bg-status')).toContainText('Background removed', {
+    timeout: 60000,
+  })
+  await page.getByRole('button', { name: 'Blur', exact: true }).click()
+  await page.waitForTimeout(500)
   await page.screenshot({ path: 'docs/editor.png', fullPage: true })
 })

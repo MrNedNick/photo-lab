@@ -130,7 +130,7 @@ $('#app').innerHTML = `
   <div id="stage" class="stage">
     <div id="empty" class="empty">
       <div class="empty-icon">${icon('image')}</div>
-      <h1 id="empty-title">Free photo editor</h1>
+      <h1 id="empty-title">Free image tools</h1>
       <p>Drop a photo here, paste it with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>V</kbd>, or pick one from your device.</p>
       <div class="empty-actions"><button id="choose" class="button primary large">${icon('open')}<span>Open a photo</span></button><button id="sample" class="button large">Try a sample image</button></div>
       <nav class="tasks" aria-label="What do you want to do?">${TASKS.map((t) => `<a class="task" href="${import.meta.env.BASE_URL}${t.slug}/" data-task="${t.slug}">${icon(({ background: 'background', compress: 'compress', crop: 'crop', retouch: 'retouch', adjust: t.action === 'resize' ? 'resize' : 'convert' } as const)[t.tool])}<span>${t.label}</span></a>`).join('')}</nav>
@@ -1855,7 +1855,7 @@ const taskFromPath = () =>
 let task: Task | undefined = taskFromPath(),
   pendingAction = task?.action
 function applyTask() {
-  $('#empty-title').textContent = task?.heading ?? 'Free photo editor'
+  $('#empty-title').textContent = task?.heading ?? 'Free image tools'
   document.title = task?.title ?? HOME_TITLE
   for (const tile of $$('[data-task]'))
     if (tile.dataset.task === task?.slug)
